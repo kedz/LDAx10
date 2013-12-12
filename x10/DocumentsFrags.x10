@@ -26,19 +26,26 @@ public class DocumentsFrags {
 
         val dirSize:long = dataDir.list().size;
         val dirList = dataDir.list();
-        val chunkSize = (dirSize-1)/nthreads+1;
+        val chunkSize = dirSize/nthreads;
+		var rem:long = dirSize%nthreads;
 		docFrags = new ArrayList[Rail[Document]](nthreads);
         Console.OUT.println("Chunksize: "+chunkSize);
         	
-        finish for (var i:long = 0; i < dirSize ; i+= chunkSize ) {
+        finish for (var i:long = 0; i < dirSize ; i+= chunkSize , rem--) {
             
             val offset = i;
             val threadIndex = i / chunkSize;
-            val lim = (i+chunkSize) > dirSize ? dirSize : i+chunkSize;
+            var limit:long = (i+chunkSize) > dirSize ? dirSize : i+chunkSize;
+			if(rem > 0){
+				limit++;
+				i++;
+			}
+			val lim=limit;
             Console.OUT.println("Limit: "+lim);
             val docStack:Stack[Document] = new Stack[Document]();
 			
             async{
+				Console.OUT.println("Chunk " + (lim-offset) + " Offset " + offset + " lim " + lim);
                 for (var j:long = offset ; j < lim ; j++ ) {
                     val f:File = new File(dirList(j));
                     val wordStack:Stack[Long] = new Stack[Long]();
@@ -56,10 +63,9 @@ public class DocumentsFrags {
                     val words:Rail[Long] = new Rail[Long](wordStack.size(), (i:Long) => wordStack.pop());
                     val topics:Rail[Long] = new Rail[Long](words.size);
                     docStack.push(new Document(words, topics));
-                
-                    docFrags.add(new Rail[Document](docStack.size(), (x:Long) => docStack.pop()));
-            
                 }
+				docFrags.add(new Rail[Document](docStack.size(), (x:Long) => docStack.pop()));
+				
             }
        
         }
