@@ -5,12 +5,18 @@ public class LDATester {
 
 
     public static def main(args:Rail[String]) {
+        
+        var ioTime:Long = 0;
+        var initTime:Long = 0;
+        var sampleTime:Long = 0;
+        
         var dataDir:File = null;
-        var niters:Long = 1000;
-        var ntopics:Long = 20;
-        var topn:Long = 10;
+        var niters:Long = (args.size > 1) ? Long.parseLong(args(1)) : 1000;
+        var ntopics:Long = (args.size > 2) ? Long.parseLong(args(2)) : 20;
+        var topn:Long = (args.size > 3) ? Long.parseLong(args(3)) : 10;
+        
         if (args.size < 1) {
-            Console.OUT.println("LDATester [DOC-DIR] [ITERATIONS]");
+            Console.OUT.println("LDATester [DOC-DIR [ITERATIONS [NTOPICS [TOPN]]]]");
             System.killHere();
         } else {
             dataDir = new File(args(0));
@@ -21,37 +27,51 @@ public class LDATester {
 
         }
 
-        if (args.size > 1) {
-            niters = Long.parseLong(args(1));
-        }
+        /** FILE IO **/
 
-        if (args.size > 2) {
-            ntopics = Long.parseLong(args(2));
-        }
-
-        if (args.size > 3) 
-            topn = Long.parseLong(args(3));
+        var ioStart:Long = Timer.milliTime();
 
         Console.OUT.println("Creating document vocabulary...");
-        var ioStart:Long = Timer.milliTime();
         val vocab:Vocabulary = new Vocabulary(dataDir); 
+        Console.OUT.println("Creating documents...");
         val docs:Documents = new Documents(vocab, dataDir);
-        val ioTime:Long = Timer.milliTime() - ioStart;
-        Console.OUT.println(ioTime);
-
-
-        var sampleStart:Long = Timer.milliTime();
-        var slda:SerialLDA = new SerialLDA(vocab, docs.docs, ntopics, 50.0, 0.01);
         
-        Console.OUT.println(slda); 
-        slda.sample(niters);
-        val sampleTime:Long = Timer.milliTime() - sampleStart;
-        for (var t:Long = 0; t < ntopics; t++)
-            slda.displayTopN(topn, t);
-        Console.OUT.println(sampleTime);
+        ioTime = Timer.milliTime() - ioStart;
 
-        //Console.OUT.println(vocab.wordIndexMap);
+        
+        /** INIT MATRICES **/
+
+        var initStart:Long = Timer.milliTime();
+        
+        Console.OUT.println("Initializing count matricies...");
+        var slda:SerialLDA = new SerialLDA(vocab, docs.docs, ntopics, 50.0, 0.01);
+        Console.OUT.println(slda+"\n"); 
+        slda.init();
+        
+        initTime = Timer.milliTime() - initStart;
+          
+        /** SAMPLING **/
+          
+        var sampleStart:Long = Timer.milliTime();       
+        
+        slda.sample(niters);
+        
+        sampleTime = Timer.milliTime() - sampleStart;
+        
+
+        /** DISPLAY **/
+
+        Console.OUT.println("TOP "+topn+" WORDS BY TOPIC\n=======================================\n");
+        for (var t:Long = 0; t < ntopics; t++)
+            slda.displayTopWords(topn, t);
+        Console.OUT.println();
        
+        Console.OUT.println("Model Log Likelihood: "+slda.logLikelihood()+"\n"); 
+       
+        Console.OUT.println("Time breakdown\n==============\n");
+        Console.OUT.println("File IO Time       :   "+ioTime);
+        Console.OUT.println("Matrix Init Time   :   "+initTime);
+        Console.OUT.println("Sample Time        :   "+sampleTime);
 
     }
 

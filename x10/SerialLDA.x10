@@ -58,10 +58,9 @@ public class SerialLDA {
 
     public def sample(niters:Long) {
 
-        init();
                 
         Console.OUT.println("Sampling for "+niters+" iterations.");
-        for (var i:Long = 0; i < niters; i++) {
+        for (var i:Long = 1; i <= niters; i++) {
             if (i%100 == 0) 
                 Console.OUT.print(i);
             else
@@ -71,11 +70,11 @@ public class SerialLDA {
                 sampleTopicsForDoc(d); 
             }
         }
-        Console.OUT.println();
+        Console.OUT.println("\n");
 
     }
 
-    private def init() {
+    public def init() {
         
         
         for (var d:Long = 0; d < docs.size; d++) {
@@ -91,8 +90,6 @@ public class SerialLDA {
 
         }
 
-        Console.OUT.println(logLikelihood());
-        Console.OUT.println(totalTypesPerTopic);
 
     }
 
@@ -140,7 +137,7 @@ public class SerialLDA {
     }
 
 
-    public def displayTopN(topn:Long, topic:Long) {
+    public def displayTopWords(topn:Long, topic:Long) {
 
         val topWords:Rail[Long] = new Rail[Long](topn);
         val topCounts:Rail[Long] = new Rail[Long](topn);
@@ -174,16 +171,47 @@ public class SerialLDA {
       
         }
 
+        Console.OUT.print("( "+topic+" ) ");
         for (var i:Long = 0; i < topn; i++) {
-            Console.OUT.print(vocab.getWord(topWords(i))+" ");
-            //Console.OUT.println(vocab.getWord(i)+": "+wordCounts(i));
+            Console.OUT.print(" "+vocab.getWord(topWords(i)));
         }
         Console.OUT.println();
 
     }
 
     public def logLikelihood() : Double {
-        return 42.0;
+    
+        var logLikelihood:Double = 0.0;
+        var topicLogGamma:Double = MathUtils.logGamma(alpha);
+        for (var d:Long = 0; d < ndocs; d++) {
+            for (var t:Long = 0; t < ntopics; t++) {
+                if (docTopicCounts(d,t) > 0) {
+                    logLikelihood -= (MathUtils.logGamma(alpha + docTopicCounts(d,t)))
+                                        - MathUtils.logGamma(alpha);
+                }
+            }
+            logLikelihood -= MathUtils.logGamma(alphaSum + ntopics);
+
+        }
+
+        logLikelihood += ndocs * MathUtils.logGamma(alphaSum);
+
+        var nonZeroTypeTopics:Long = 0;
+        for (var w:Long = 0; w < ntypes; w++) {
+            for (var t:Long = 0; t < ntopics; t++) {
+                if (typeTopicCounts(w,t) == 0) continue;
+                nonZeroTypeTopics++;
+                logLikelihood += MathUtils.logGamma(beta + typeTopicCounts(w,t));
+            }
+        }
+
+        for (var t:Long = 0; t < ntopics; t++) {
+            logLikelihood -= MathUtils.logGamma((beta * ntopics) + totalTypesPerTopic(t));
+        }
+
+        logLikelihood += MathUtils.logGamma(beta * ntopics) - (MathUtils.logGamma(beta)* nonZeroTypeTopics);
+
+        return logLikelihood;
     }
 
 }

@@ -6,7 +6,6 @@ import x10.util.Timer;
 
 public class ParallelLDA {
 
-    //val docs:Rail[Documents.Document];
     val vocab:Vocabulary;
 
     val ntopics:Long;
@@ -18,36 +17,27 @@ public class ParallelLDA {
     val beta:Double;
     val betaSum:Double;
     
-
     val nthreads:Long;
     val workers:Rail[LDAWorker];
-    
-    //val rand = new Random(Timer.milliTime());
 
-    //val typeTopicCounts:Array_2[Long];
-    //val docTopicCounts:Array_2[Long];
-    //val totalTypesPerTopic:Rail[Long];
-    
-    //var topicWeights:Rail[Double];
+    var totalSampleTime:Long = 0;
+    var totalResyncTime:Long = 0;    
 
-    public def this(vocab:Vocabulary, docsFrags:ArrayList[DocumentFrags], ntopics:Long, alphaSum:Double, beta:Double, nthreads:Long) {
+    public def this(vocab:Vocabulary, docsFrags:ArrayList[Rail[DocumentsFrags.Document]], ntopics:Long, alphaSum:Double, beta:Double, nthreads:Long) {
     
-        this.ndocs = docs.size;
+        this.ndocs = docsFrags.size();
         this.ntopics = ntopics;
         this.alpha = alphaSum / ntopics;
         this.alphaSum = alphaSum;
         this.beta = beta;
         this.ntypes = vocab.size();
         this.betaSum = this.ntypes * this.beta;
-        //this.docs = docs;
         this.vocab = vocab;
         this.nthreads = nthreads;
-        this.workers = new Rail[LDAWorker](nthreads, (t:Long) => new LDAWorker(vocab, docsFrags.docs(t), ntopics, alpha, alphaSum, beta, betaSum, t));
-
-        //this.typeTopicCounts = new Array_2[Long](ntypes, ntopics);
-        //this.docTopicCounts = new Array_2[Long](ndocs, ntopics);
-        //this.totalTypesPerTopic = new Rail[Long](ntopics);
-        //this.topicWeights = new Rail[Double](ntopics, (t:Long) => 0.0); 
+        
+        workers = new Rail[LDAWorker](nthreads);
+        for (var t:Long = 0; t < nthreads; t++)
+            workers(t) = new LDAWorker(vocab, docsFrags.get(t), ntopics, alpha, beta, this.betaSum, t);
 
     }
 
@@ -78,8 +68,14 @@ public class ParallelLDA {
         finish for (worker in workers)
             async worker.initLocal();
 
+        shareCounts();
+
+    }
+
+    public def shareCounts() {
+
         for (var i:Long = 0; i < workers.size; i++) {
-            for (var j:Long = i+; j < workers.size; j++) {
+            for (var j:Long = i+1; j < workers.size; j++) {
                 workers(i).addGlobalCounts(workers(j).getLocalTypeTopicMatrix(),
                                            workers(j).getLocalTypesPerTopicCounts());
                 workers(j).addGlobalCounts(workers(i).getLocalTypeTopicMatrix(),
@@ -93,135 +89,51 @@ public class ParallelLDA {
 
     }
 
+    public def resync() {
+        for (worker in workers) 
+            worker.resetGlobalCounts();
+        shareCounts();
+    }
 
-    /*
     public def sample(niters:Long) {
 
-        init();
-                
         Console.OUT.println("Sampling for "+niters+" iterations.");
         for (var i:Long = 0; i < niters; i++) {
             if (i%100 == 0) 
                 Console.OUT.print(i);
             else
                 Console.OUT.print(".");
+            Console.OUT.flush();
 
-            for (var d:Long = 0; d < ndocs; d++) {
-                sampleTopicsForDoc(d); 
+            val sampleStart:Long = Timer.milliTime();
+            finish for (worker in workers) {
+                async worker.oneSampleIteration(); 
             }
+            totalSampleTime += Timer.milliTime() - sampleStart;
+            Console.OUT.print("*");
+            Console.OUT.flush();
+
+            val resyncStart:Long = Timer.milliTime();
+            Console.OUT.print("r");
+            Console.OUT.flush();
+            resync();
+            Console.OUT.print("R");
+            Console.OUT.flush();
+            totalResyncTime += Timer.milliTime() - resyncStart;
         }
         Console.OUT.println();
-
     }
 
-    private def init() {
-        
-        
-        for (var d:Long = 0; d < docs.size; d++) {
-            var doc:Documents.Document = docs(d);
-            for (var w:Long = 0; w < doc.size; w++) {
-                val wIndex:Long = doc.words(w);
-                val t:Long = rand.nextLong(ntopics);    
-                typeTopicCounts(wIndex,t)++;
-                docTopicCounts(d,t)++;
-                totalTypesPerTopic(t)++;
-                doc.topics(w) = t;
-            }
-
-        }
-
-
+    public def displayTopWords(topn:Long, topic:Long) {
+        workers(0).displayTopWords(topn, topic);
     }
 
-    private def sampleTopicsForDoc(d:Long) {
-        for (var w:Long = 0; w < docs(d).size; w++) {
-           
-            
-            val wIndex = docs(d).words(w);
-            val oldTopic = docs(d).topics(w);
-            
-            // Subtract counts 
-            docTopicCounts(d,oldTopic)--;
-            typeTopicCounts(wIndex, oldTopic)--;
-            totalTypesPerTopic(oldTopic)--;
-            
-            var sum:Double = 0.0;
-        
-            for (var t:Long = 0; t < ntopics; t++) {
-                val weight:Double = makeTopicWeight(d, wIndex, t);
-                topicWeights(t) = weight;
-                sum += weight;
-            }
-
-                
-            var sample:Double = rand.nextDouble() * sum;
-            
-            var newTopic:Long = -1;
-            while (sample > 0.0 && newTopic < ntopics) {
-                newTopic++;
-                sample -= topicWeights(newTopic);
-            }
-           
-            if (newTopic >= ntopics || newTopic < 0)
-                Console.OUT.println("BAD TOPIC " + newTopic+"  "+docs(d).size +"  "+sum);
-            docTopicCounts(d,newTopic)++;
-            typeTopicCounts(wIndex, newTopic)++;
-            totalTypesPerTopic(newTopic)++;
-            docs(d).topics(w) = newTopic;
-        }
-
+    public def getTotalSampleTime() : Long {
+        return totalSampleTime;
     }
 
-    private def makeTopicWeight(d:Long, wIndex:Long, t:Long) : Double {
-        return (alpha + docTopicCounts(d,t)) * ((beta + typeTopicCounts(wIndex,t)) / (betaSum + totalTypesPerTopic(t)));
+    public def getTotalResyncTime() : Long {
+        return totalResyncTime;
     }
-
-
-    public def displayTopN(topn:Long, topic:Long) {
-
-        val topWords:Rail[Long] = new Rail[Long](topn);
-        val topCounts:Rail[Long] = new Rail[Long](topn);
-
-        val wordCounts:Rail[Long] = new Rail[Long](ntypes, (w:Long) => typeTopicCounts(w, topic));
-        for (var i:Long = 0; i < ntypes; i++) {
-
-            var j:Long = topn-1;
-            while (j >= 0) {
-                if (wordCounts(i) > topCounts(j)) {
-                    if (j+1 < topn) {
-                       topCounts(j+1) = topCounts(j);
-                       topWords(j+1) = topWords(j);
-                                        
-                    }
-                   topCounts(j) = wordCounts(i);
-                   topWords(j) = i;
-
-
-                } else {
-                    //if (j+1 < topn) {
-                    //    topCounts(j+1) = wordCounts(i);
-                   //     topWords(j+1) = i;
-                    //}
-        
-                    break;
-                }
-                
-                j--;
-            }
-      
-        }
-
-        for (var i:Long = 0; i < topn; i++) {
-            Console.OUT.print(vocab.getWord(topWords(i))+" ");
-            //Console.OUT.println(vocab.getWord(i)+": "+wordCounts(i));
-        }
-        Console.OUT.println();
-
-    }
-
-    public def logLikelihood() : Double {
-        return 42.0;
-    }
-    */
 
 }

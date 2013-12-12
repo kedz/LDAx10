@@ -3,7 +3,7 @@ import x10.util.Random;
 import x10.util.RailUtils;
 import x10.util.Timer;
 
-public class ParallelLDA {
+public class LDAWorker {
 
     val docs:Rail[DocumentsFrags.Document];
     val vocab:Vocabulary;
@@ -13,7 +13,6 @@ public class ParallelLDA {
     val ndocs:Long;
 
     val alpha:Double;
-    val alphaSum:Double;
     val beta:Double;
     val betaSum:Double;
 
@@ -52,8 +51,8 @@ public class ParallelLDA {
     }
 
     public def toString():String {
-        val repStr:String = "LDAWorker:::thread="+id"\n"
-            + "         :::location="+here"\n"
+        val repStr:String = "LDAWorker:::thread="+id+"\n"
+            + "         :::location="+here+"\n"
             + "         :::ntopics="+ntopics+"\n"
             + "         :::alpha="+alpha+"\n"
             + "         :::beta="+beta+"\n"
@@ -112,10 +111,106 @@ public class ParallelLDA {
         return totalTypesPerTopicLocal;
     }
 
+    public def oneSampleIteration() {
+
+        for (var d:Long = 0; d < ndocs; d++) {
+            sampleTopicsForDoc(d); 
+        }
+
+    }
+
+    private def sampleTopicsForDoc(d:Long) {
+        for (var w:Long = 0; w < docs(d).size; w++) {
+           
+            
+            val wIndex = docs(d).words(w);
+            val oldTopic = docs(d).topics(w);
+            
+            // Subtract counts 
+            docTopicCounts(d,oldTopic)--;
+            typeTopicCountsLocal(wIndex, oldTopic)--;
+            totalTypesPerTopicLocal(oldTopic)--;
+            
+            var sum:Double = 0.0;
+        
+            for (var t:Long = 0; t < ntopics; t++) {
+                val weight:Double = makeTopicWeight(d, wIndex, t);
+                topicWeights(t) = weight;
+                sum += weight;
+            }
+
+                
+            var sample:Double = rand.nextDouble() * sum;
+            
+            var newTopic:Long = -1;
+            while (sample > 0.0 && newTopic < ntopics) {
+                newTopic++;
+                sample -= topicWeights(newTopic);
+            }
+           
+            if (newTopic >= ntopics || newTopic < 0)
+                Console.OUT.println("BAD TOPIC " + newTopic+"  "+docs(d).size +"  "+sum);
+            docTopicCounts(d,newTopic)++;
+            typeTopicCountsLocal(wIndex, newTopic)++;
+            totalTypesPerTopicLocal(newTopic)++;
+            docs(d).topics(w) = newTopic;
+        }
+
+    }
+
+    private def makeTopicWeight(d:Long, wIndex:Long, t:Long) : Double {
+        return (alpha + docTopicCounts(d,t)) 
+                * ((beta + typeTopicCountsLocal(wIndex,t) + typeTopicCountsGlobal(wIndex,t)) 
+                    / (betaSum + totalTypesPerTopicLocal(t) + totalTypesPerTopicGlobal(t)));
+    }
+
+    public def displayTopWords(topn:Long, topic:Long) {
+
+        val topWords:Rail[Long] = new Rail[Long](topn);
+        val topCounts:Rail[Long] = new Rail[Long](topn);
+
+        val wordCounts:Rail[Long] = new Rail[Long](ntypes, (w:Long) => typeTopicCountsLocal(w, topic) + typeTopicCountsGlobal(w, topic));
+        for (var i:Long = 0; i < ntypes; i++) {
+
+            var j:Long = topn-1;
+            while (j >= 0) {
+                if (wordCounts(i) > topCounts(j)) {
+                    if (j+1 < topn) {
+                       topCounts(j+1) = topCounts(j);
+                       topWords(j+1) = topWords(j);
+                                        
+                    }
+                   topCounts(j) = wordCounts(i);
+                   topWords(j) = i;
+
+
+                } else {
+                    //if (j+1 < topn) {
+                    //    topCounts(j+1) = wordCounts(i);
+                   //     topWords(j+1) = i;
+                    //}
+        
+                    break;
+                }
+                
+                j--;
+            }
+      
+        }
+
+        for (var i:Long = 0; i < topn; i++) {
+            Console.OUT.print(vocab.getWord(topWords(i))+" ");
+            //Console.OUT.println(vocab.getWord(i)+": "+wordCounts(i));
+        }
+        Console.OUT.println();
+
+    }
+
+
     /*
     public def sample(niters:Long) {
 
-        init();
+        //init();
                 
         Console.OUT.println("Sampling for "+niters+" iterations.");
         for (var i:Long = 0; i < niters; i++) {

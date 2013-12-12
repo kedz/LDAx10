@@ -5,12 +5,22 @@ public class PLDATester {
 
 
     public static def main(args:Rail[String]) {
+
+        /* Timing info*/
+        var ioTime:Long;
+        var initTime:Long;
+        var sampleTime:Long;
+        var syncTime:Long;
+        
+
         var dataDir:File = null;
         var niters:Long = 1000;
         var ntopics:Long = 20;
         var topn:Long = 10;
+        var nthreads:Long = (args.size > 4) ? Long.parseLong(args(4)) : 1;
+
         if (args.size < 1) {
-            Console.OUT.println("LDATester [DOC-DIR] [ITERATIONS]");
+            Console.OUT.println("LDATester [DOC-DIR [ITERATIONS [NTOPICS [TOPN [NTHREADS]]]]]");
             System.killHere();
         } else {
             dataDir = new File(args(0));
@@ -32,42 +42,53 @@ public class PLDATester {
         if (args.size > 3) 
             topn = Long.parseLong(args(3));
 
-        Console.OUT.println("Creating document vocabulary...");
+
+        /** FILE IO **/
+
         var ioStart:Long = Timer.milliTime();
+        
+        Console.OUT.println("Creating document vocabulary...");
         val vocab:Vocabulary = new Vocabulary(dataDir);
-
-        Console.OUT.println("There are "+dataDir.list().size+" files in the directory");
-
         
-        val docs:DocumentsFrags = new DocumentsFrags(vocab, dataDir, 5);
-        
-        Console.OUT.println("There are "+docs.size()+" in the doc frag.");
-         
-        //val docs:Documents = new Documents(vocab, dataDir);
-        
-        /*
-        val ioTime:Long = Timer.milliTime() - ioStart;
-        Console.OUT.println(ioTime);
+        Console.OUT.println("Reading documents...");
+        val docs:DocumentsFrags = new DocumentsFrags(vocab, dataDir, nthreads);
 
+        //Console.OUT.println("There are "+dataDir.list().size+" files in the directory");
+        //Console.OUT.println("There are "+docs.size()+" in the doc frag.");
 
-        var sampleStart:Long = Timer.milliTime();
-        var plda:ParallelLDA = new ParallelLDA(vocab, docs.docs, ntopics, 50.0, 0.01);
+        ioTime = Timer.milliTime() - ioStart;
+
+        /** MATRIX INIT **/
+
+        val initStart:Long = Timer.milliTime();
         
-        plda.printReport();
-
+        var plda:ParallelLDA = new ParallelLDA(vocab, docs.docFrags, ntopics, 50.0, 0.01, nthreads);
+        plda.printReport();  
         plda.init();
-        */
-        //Console.OUT.println(slda); 
         
-        /*
-        slda.sample(niters);
-        val sampleTime:Long = Timer.milliTime() - sampleStart;
+        initTime = Timer.milliTime() - initStart;
+        
+        /** SAMPLE **/
+
+        plda.sample(niters);
+
+        Console.OUT.println("Sampling complete!");
+        Console.OUT.println();
+
+        sampleTime = plda.getTotalSampleTime();
+        syncTime = plda.getTotalResyncTime();
+        
+        /** DISPLAY **/
         for (var t:Long = 0; t < ntopics; t++)
-            slda.displayTopN(topn, t);
-        Console.OUT.println(sampleTime);
-        */
-        //Console.OUT.println(vocab.wordIndexMap);
-       
+            plda.displayTopWords(topn, t);
+        
+        Console.OUT.println("Time breakdown\n==============\n\n");
+        Console.OUT.println("File IO Time       :   "+ioTime);
+        Console.OUT.println("Matrix Init Time   :   "+initTime);
+        Console.OUT.println("Sample Time        :   "+sampleTime);
+        Console.OUT.println("Sync Time          :   "+syncTime);
+        
+
 
     }
 
