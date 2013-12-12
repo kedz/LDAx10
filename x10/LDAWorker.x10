@@ -1,12 +1,11 @@
 import x10.array.Array_2;
-import x10.util.ArrayList;
 import x10.util.Random;
 import x10.util.RailUtils;
 import x10.util.Timer;
 
 public class ParallelLDA {
 
-    //val docs:Rail[Documents.Document];
+    val docs:Rail[DocumentsFrags.Document];
     val vocab:Vocabulary;
 
     val ntopics:Long;
@@ -17,44 +16,46 @@ public class ParallelLDA {
     val alphaSum:Double;
     val beta:Double;
     val betaSum:Double;
-    
 
-    val nthreads:Long;
-    val workers:Rail[LDAWorker];
-    
-    //val rand = new Random(Timer.milliTime());
+    val rand = new Random(Timer.milliTime());
 
-    //val typeTopicCounts:Array_2[Long];
-    //val docTopicCounts:Array_2[Long];
-    //val totalTypesPerTopic:Rail[Long];
+    val docTopicCounts:Array_2[Long];
     
-    //var topicWeights:Rail[Double];
+    val typeTopicCountsLocal:Array_2[Long];
+    val typeTopicCountsGlobal:Array_2[Long];
 
-    public def this(vocab:Vocabulary, docsFrags:ArrayList[DocumentFrags], ntopics:Long, alphaSum:Double, beta:Double, nthreads:Long) {
+    val totalTypesPerTopicLocal:Rail[Long];
+    val totalTypesPerTopicGlobal:Rail[Long];
     
+    var topicWeights:Rail[Double];
+
+    val id:Long;
+
+    public def this(vocab:Vocabulary, docs:Rail[DocumentsFrags.Document], ntopics:Long, alpha:Double, beta:Double, betaSum:Double, id:Long) {
+        this.id = id;
         this.ndocs = docs.size;
         this.ntopics = ntopics;
-        this.alpha = alphaSum / ntopics;
-        this.alphaSum = alphaSum;
+        this.alpha = alpha;
         this.beta = beta;
+        this.betaSum = betaSum;
         this.ntypes = vocab.size();
-        this.betaSum = this.ntypes * this.beta;
-        //this.docs = docs;
+        this.docs = docs;
         this.vocab = vocab;
-        this.nthreads = nthreads;
-        this.workers = new Rail[LDAWorker](nthreads, (t:Long) => new LDAWorker(vocab, docsFrags.docs(t), ntopics, alpha, alphaSum, beta, betaSum, t));
-
-        //this.typeTopicCounts = new Array_2[Long](ntypes, ntopics);
-        //this.docTopicCounts = new Array_2[Long](ndocs, ntopics);
-        //this.totalTypesPerTopic = new Rail[Long](ntopics);
-        //this.topicWeights = new Rail[Double](ntopics, (t:Long) => 0.0); 
+        
+        this.docTopicCounts = new Array_2[Long](ndocs, ntopics);
+        this.typeTopicCountsLocal = new Array_2[Long](ntypes, ntopics);
+        this.typeTopicCountsGlobal = new Array_2[Long](ntypes, ntopics);
+        this.totalTypesPerTopicLocal = new Rail[Long](ntopics);
+        this.totalTypesPerTopicGlobal = new Rail[Long](ntopics);
+        this.topicWeights = new Rail[Double](ntopics, (t:Long) => 0.0); 
 
     }
 
     public def toString():String {
-        val repStr:String = "SerialLDA:::ntopics="+ntopics+"\n"
+        val repStr:String = "LDAWorker:::thread="+id"\n"
+            + "         :::location="+here"\n"
+            + "         :::ntopics="+ntopics+"\n"
             + "         :::alpha="+alpha+"\n"
-            + "         :::alphaSum="+alphaSum+"\n"
             + "         :::beta="+beta+"\n"
             + "         :::betaSum="+betaSum+"\n"
             + "         :::ndocs="+ndocs+"\n" 
@@ -63,36 +64,53 @@ public class ParallelLDA {
         return repStr;            
     }
 
-
-    public def printReport() {
-
-        Console.OUT.println(toString());
-        Console.OUT.println();
-        Console.OUT.println("LDAWorker sound off...\n");
-        finish for (worker in workers)
-            async Console.OUT.println(worker+"\n");
-    }
-
-    public def init() {
-
-        finish for (worker in workers)
-            async worker.initLocal();
-
-        for (var i:Long = 0; i < workers.size; i++) {
-            for (var j:Long = i+; j < workers.size; j++) {
-                workers(i).addGlobalCounts(workers(j).getLocalTypeTopicMatrix(),
-                                           workers(j).getLocalTypesPerTopicCounts());
-                workers(j).addGlobalCounts(workers(i).getLocalTypeTopicMatrix(),
-                                           workers(i).getLocalTypesPerTopicCounts());
-                    
-
+    public def initLocal() {
+        
+        for (var d:Long = 0; d < docs.size; d++) {
+            var doc:DocumentsFrags.Document = docs(d);
+            for (var w:Long = 0; w < doc.size; w++) {
+                val wIndex:Long = doc.words(w);
+                val t:Long = rand.nextLong(ntopics);    
+                typeTopicCountsLocal(wIndex,t)++;
+                docTopicCounts(d,t)++;
+                totalTypesPerTopicLocal(t)++;
+                doc.topics(w) = t;
             }
 
         }
-        
 
     }
 
+
+    public def resetGlobalCounts() {
+        for (var t:Long = 0; t < ntopics; t++) {
+            for (var i:Long = 0; i < ntypes; i++) {
+                typeTopicCountsGlobal(i,t) = 0;
+
+            }
+            totalTypesPerTopicGlobal(t) = 0;
+        }
+    }
+
+    public def addGlobalCounts(oTypeTopicMatrix:Array_2[Long], oTypesPerTopicCounts:Rail[Long]) {
+        
+        for (var t:Long = 0; t < ntopics; t++) {
+            for (var i:Long = 0; i < ntypes; i++) {
+                typeTopicCountsGlobal(i,t) += oTypeTopicMatrix(i,t);
+
+            }
+            totalTypesPerTopicGlobal(t) += oTypesPerTopicCounts(t);
+        }
+    }
+    
+
+    public def getLocalTypeTopicMatrix() : Array_2[Long] {
+        return typeTopicCountsLocal;
+    }
+
+    public def getLocalTypesPerTopicCounts() : Rail[Long] {
+        return totalTypesPerTopicLocal;
+    }
 
     /*
     public def sample(niters:Long) {
@@ -111,25 +129,6 @@ public class ParallelLDA {
             }
         }
         Console.OUT.println();
-
-    }
-
-    private def init() {
-        
-        
-        for (var d:Long = 0; d < docs.size; d++) {
-            var doc:Documents.Document = docs(d);
-            for (var w:Long = 0; w < doc.size; w++) {
-                val wIndex:Long = doc.words(w);
-                val t:Long = rand.nextLong(ntopics);    
-                typeTopicCounts(wIndex,t)++;
-                docTopicCounts(d,t)++;
-                totalTypesPerTopic(t)++;
-                doc.topics(w) = t;
-            }
-
-        }
-
 
     }
 
@@ -223,5 +222,4 @@ public class ParallelLDA {
         return 42.0;
     }
     */
-
 }

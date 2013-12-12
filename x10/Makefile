@@ -4,7 +4,7 @@ FLAGS=-O
 LDA: LDATester.x10 SerialLDA.x10 Vocabulary.x10 Documents.x10
 	$(X10C) $(FLAGS) -o $@ $^
 
-PLDA: PLDATester.x10
+PLDA: PLDATester.x10 DocumentsFrags.x10
 	$(X10C) $(FLAGS) -o $@ $^
 
 test: LDA

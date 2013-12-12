@@ -123,7 +123,6 @@ public class SerialLDA {
             while (sample > 0.0 && newTopic < ntopics) {
                 newTopic++;
                 sample -= topicWeights(newTopic);
-                //Console.OUT.println("SAMPLED WEIGHT  "+sample);
             }
            
             if (newTopic >= ntopics || newTopic < 0)
