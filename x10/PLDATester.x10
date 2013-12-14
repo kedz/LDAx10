@@ -14,9 +14,9 @@ public class PLDATester {
         
 
         var dataDir:File = null;
-        var niters:Long = 1000;
-        var ntopics:Long = 20;
-        var topn:Long = 10;
+        var niters:Long = (args.size > 1) ? Long.parseLong(args(1)) : 1000;
+        var ntopics:Long = (args.size > 2) ? Long.parseLong(args(2)) : 20;
+        var topn:Long = (args.size > 3) ? Long.parseLong(args(3)) : 10;
         var nthreads:Long = (args.size > 4) ? Long.parseLong(args(4)) : 1;
 
         if (args.size < 1) {
@@ -31,30 +31,19 @@ public class PLDATester {
 
         }
 
-        if (args.size > 1) {
-            niters = Long.parseLong(args(1));
-        }
-
-        if (args.size > 2) {
-            ntopics = Long.parseLong(args(2));
-        }
-
-        if (args.size > 3) 
-            topn = Long.parseLong(args(3));
-
 
         /** FILE IO **/
 
         var ioStart:Long = Timer.milliTime();
-        
+       
+        val fileList:Rail[String] = dataDir.list();
+         
         Console.OUT.println("Creating document vocabulary...");
-        val vocab:Vocabulary = new Vocabulary(dataDir);
+        val vocab:Vocabulary = Vocabulary.buildVocabParallel(fileList, nthreads);
         
         Console.OUT.println("Reading documents...");
-        val docs:DocumentsFrags = new DocumentsFrags(vocab, dataDir, nthreads);
-
-        //Console.OUT.println("There are "+dataDir.list().size+" files in the directory");
-        //Console.OUT.println("There are "+docs.size()+" in the doc frag.");
+        val docFrags = Documents.buildDocumentFragments(vocab, fileList, nthreads);
+        //val docFrags:ArrayList[Rail[Documents.Document]] = Documents.buildDocumentFragments(vocab, fileList, nthreads);
 
         ioTime = Timer.milliTime() - ioStart;
 
@@ -62,7 +51,7 @@ public class PLDATester {
 
         val initStart:Long = Timer.milliTime();
         
-        var plda:ParallelLDA = new ParallelLDA(vocab, docs.docFrags, ntopics, 50.0, 0.01, nthreads);
+        var plda:ParallelLDA = new ParallelLDA(vocab, docFrags, ntopics, 50.0, 0.01, nthreads);
         plda.printReport();  
         plda.init();
         

@@ -4,7 +4,7 @@ import x10.util.Random;
 import x10.util.RailUtils;
 import x10.util.Timer;
 
-public class ParallelLDA {
+public class DistLDANode {
 
     val vocab:Vocabulary;
 
@@ -18,12 +18,22 @@ public class ParallelLDA {
     val betaSum:Double;
     
     val nthreads:Long;
-    val workers:Rail[LDAWorker];
+    public val workers:Rail[LDAWorker];
+    public val typeTopicWorldCounts:Array_2[Long];
+
 
     var totalSampleTime:Long = 0;
     var totalResyncTime:Long = 0;    
 
-    public def this(vocab:Vocabulary, docsFrags:ArrayList[Rail[Documents.Document]], ntopics:Long, alphaSum:Double, beta:Double, nthreads:Long) {
+    var done:Boolean = false;
+
+    public def this(world:PlaceGroup.SimplePlaceGroup,
+                    vocab:Vocabulary, 
+                    docsFrags:ArrayList[Rail[Documents.Document]],
+                    ntopics:Long,
+                    alphaSum:Double,
+                    beta:Double,
+                    nthreads:Long) {
     
         this.ndocs = docsFrags.size();
         this.ntopics = ntopics;
@@ -34,7 +44,8 @@ public class ParallelLDA {
         this.betaSum = this.ntypes * this.beta;
         this.vocab = vocab;
         this.nthreads = nthreads;
-        
+        this.typeTopicWorldCounts = new Array_2[Long](ntypes, ntopics);
+
         workers = new Rail[LDAWorker](nthreads);
         for (var t:Long = 0; t < nthreads; t++)
             workers(t) = new LDAWorker(vocab, docsFrags.get(t), ntopics, alpha, beta, this.betaSum, t);
@@ -42,13 +53,13 @@ public class ParallelLDA {
     }
 
     public def toString():String {
-        val repStr:String = "SerialLDA:::ntopics="+ntopics+"\n"
-            + "         :::alpha="+alpha+"\n"
-            + "         :::alphaSum="+alphaSum+"\n"
-            + "         :::beta="+beta+"\n"
-            + "         :::betaSum="+betaSum+"\n"
-            + "         :::ndocs="+ndocs+"\n" 
-            + "         :::ntypes="+ntypes;
+        val repStr:String = "DistLDANode:::ntopics="+ntopics+"\n"
+            + "           :::alpha="+alpha+"\n"
+            + "           :::alphaSum="+alphaSum+"\n"
+            + "           :::beta="+beta+"\n"
+            + "           :::betaSum="+betaSum+"\n"
+            + "           :::ndocs="+ndocs+"\n" 
+            + "           :::ntypes="+ntypes;
 
         return repStr;            
     }
@@ -68,7 +79,7 @@ public class ParallelLDA {
         finish for (worker in workers)
             async worker.initLocal();
 
-        shareCounts();
+        resync();
 
     }
 
@@ -119,13 +130,16 @@ public class ParallelLDA {
 
     }
 
+
     public def sample(niters:Long) {
+
+        done = false;
 
         for (var i:Long = 1; i <= niters; i++) {
             if (i%100 == 0) 
-                Console.OUT.print(i);
-            else
-                Console.OUT.print(".");
+                Console.OUT.print(i+"{"+here+"} ");
+            //else
+            //    Console.OUT.print(".");
             Console.OUT.flush();
 
             val sampleStart:Long = Timer.milliTime();
@@ -146,6 +160,7 @@ public class ParallelLDA {
                 totalResyncTime += Timer.milliTime() - resyncStart;
             }
         }
+        done = true;
         Console.OUT.println();
     }
 

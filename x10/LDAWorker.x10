@@ -5,7 +5,7 @@ import x10.util.Timer;
 
 public class LDAWorker {
 
-    val docs:Rail[DocumentsFrags.Document];
+    val docs:Rail[Documents.Document];
     val vocab:Vocabulary;
 
     val ntopics:Long;
@@ -20,17 +20,33 @@ public class LDAWorker {
 
     val docTopicCounts:Array_2[Long];
     
-    val typeTopicCountsLocal:Array_2[Long];
-    val typeTopicCountsGlobal:Array_2[Long];
+    public val typeTopicCountsLocal:Array_2[Long];
+    public val typeTopicCountsGlobal:Array_2[Long];
 
-    val totalTypesPerTopicLocal:Rail[Long];
-    val totalTypesPerTopicGlobal:Rail[Long];
+    public val totalTypesPerTopicLocal:Rail[Long];
+    public val totalTypesPerTopicGlobal:Rail[Long];
     
     var topicWeights:Rail[Double];
 
     val id:Long;
+    public var typeTopicWorldCounts:Array_2[Long] = null;
+    public var typeTopicWorldTotals:Rail[Long] = null;
+    var useWorld:Boolean = false;
 
-    public def this(vocab:Vocabulary, docs:Rail[DocumentsFrags.Document], ntopics:Long, alpha:Double, beta:Double, betaSum:Double, id:Long) {
+    public def this(vocab:Vocabulary, docs:Rail[Documents.Document], ntopics:Long, alpha:Double, beta:Double, betaSum:Double, id:Long) {
+        this(vocab, docs, ntopics, alpha, beta, betaSum, id, null, null);
+    }
+
+    public def this(vocab:Vocabulary,
+                    docs:Rail[Documents.Document],
+                    ntopics:Long,
+                    alpha:Double,
+                    beta:Double,
+                    betaSum:Double,
+                    id:Long,
+                    typeTopicWorldCounts:Array_2[Long],
+                    typeTopicWorldTotals:Rail[Long]) {
+
         this.id = id;
         this.ndocs = docs.size;
         this.ntopics = ntopics;
@@ -47,6 +63,10 @@ public class LDAWorker {
         this.totalTypesPerTopicLocal = new Rail[Long](ntopics);
         this.totalTypesPerTopicGlobal = new Rail[Long](ntopics);
         this.topicWeights = new Rail[Double](ntopics, (t:Long) => 0.0); 
+        this.typeTopicWorldCounts = typeTopicWorldCounts;
+        this.typeTopicWorldTotals = typeTopicWorldTotals;
+        if (typeTopicWorldCounts == null)
+            useWorld = true;
 
     }
 
@@ -66,7 +86,7 @@ public class LDAWorker {
     public def initLocal() {
         
         for (var d:Long = 0; d < docs.size; d++) {
-            var doc:DocumentsFrags.Document = docs(d);
+            var doc:Documents.Document = docs(d);
             for (var w:Long = 0; w < doc.size; w++) {
                 val wIndex:Long = doc.words(w);
                 val t:Long = rand.nextLong(ntopics);    
@@ -82,6 +102,8 @@ public class LDAWorker {
 
 
     public def resetGlobalCounts() {
+
+
         for (var t:Long = 0; t < ntopics; t++) {
             for (var i:Long = 0; i < ntypes; i++) {
                 typeTopicCountsGlobal(i,t) = 0;
@@ -159,9 +181,15 @@ public class LDAWorker {
     }
 
     private def makeTopicWeight(d:Long, wIndex:Long, t:Long) : Double {
-        return (alpha + docTopicCounts(d,t)) 
-                * ((beta + typeTopicCountsLocal(wIndex,t) + typeTopicCountsGlobal(wIndex,t)) 
-                    / (betaSum + totalTypesPerTopicLocal(t) + totalTypesPerTopicGlobal(t)));
+        //if (!useWorld)
+            return (alpha + docTopicCounts(d,t)) 
+                    * ((beta + typeTopicCountsLocal(wIndex,t) + typeTopicCountsGlobal(wIndex,t)) 
+                        / (betaSum + totalTypesPerTopicLocal(t) + totalTypesPerTopicGlobal(t)));
+       /* else
+            return (alpha + docTopicCounts(d,t)) 
+                    * ((beta + typeTopicCountsLocal(wIndex,t) + typeTopicCountsGlobal(wIndex,t) + typeTopicWorldCounts(wIndex,t)) 
+                        / (betaSum + totalTypesPerTopicLocal(t) + totalTypesPerTopicGlobal(t) + typeTopicWorldTotals(t)));
+    */
     }
 
     public def displayTopWords(topn:Long, topic:Long) {
