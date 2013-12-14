@@ -61,11 +61,14 @@ public class DLDATester {
                                                                              50.0,
                                                                              0.01,
                                                                              nthreads));
-
-
+        
+        
         finish for (p in places) {
             at (p) {
-                async dlda().sample(niters);
+                async {
+                    dlda().init();
+                    dlda().sample(niters);
+                }
             }
         }
 
