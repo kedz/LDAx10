@@ -43,7 +43,6 @@ public class PLDATester {
         
         Console.OUT.println("Reading documents...");
         val docFrags = Documents.buildDocumentFragments(vocab, fileList, nthreads);
-        //val docFrags:ArrayList[Rail[Documents.Document]] = Documents.buildDocumentFragments(vocab, fileList, nthreads);
 
         ioTime = Timer.milliTime() - ioStart;
 

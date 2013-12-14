@@ -65,8 +65,9 @@ public class LDAWorker {
         this.topicWeights = new Rail[Double](ntopics, (t:Long) => 0.0); 
         this.typeTopicWorldCounts = typeTopicWorldCounts;
         this.typeTopicWorldTotals = typeTopicWorldTotals;
-        if (typeTopicWorldCounts == null)
+        if (this.typeTopicWorldCounts != null && this.typeTopicWorldTotals != null) {
             useWorld = true;
+        }
 
     }
 
@@ -181,15 +182,15 @@ public class LDAWorker {
     }
 
     private def makeTopicWeight(d:Long, wIndex:Long, t:Long) : Double {
-        //if (!useWorld)
+        if (!useWorld) {
             return (alpha + docTopicCounts(d,t)) 
                     * ((beta + typeTopicCountsLocal(wIndex,t) + typeTopicCountsGlobal(wIndex,t)) 
                         / (betaSum + totalTypesPerTopicLocal(t) + totalTypesPerTopicGlobal(t)));
-       /* else
+        } else {
             return (alpha + docTopicCounts(d,t)) 
                     * ((beta + typeTopicCountsLocal(wIndex,t) + typeTopicCountsGlobal(wIndex,t) + typeTopicWorldCounts(wIndex,t)) 
                         / (betaSum + totalTypesPerTopicLocal(t) + totalTypesPerTopicGlobal(t) + typeTopicWorldTotals(t)));
-    */
+        }
     }
 
     public def displayTopWords(topn:Long, topic:Long) {
@@ -226,123 +227,13 @@ public class LDAWorker {
       
         }
 
+        Console.OUT.print("( "+topic+" )  "); 
         for (var i:Long = 0; i < topn; i++) {
-            Console.OUT.print(vocab.getWord(topWords(i))+" ");
+            Console.OUT.print(" "+vocab.getWord(topWords(i)));
             //Console.OUT.println(vocab.getWord(i)+": "+wordCounts(i));
         }
         Console.OUT.println();
 
     }
 
-
-    /*
-    public def sample(niters:Long) {
-
-        //init();
-                
-        Console.OUT.println("Sampling for "+niters+" iterations.");
-        for (var i:Long = 0; i < niters; i++) {
-            if (i%100 == 0) 
-                Console.OUT.print(i);
-            else
-                Console.OUT.print(".");
-
-            for (var d:Long = 0; d < ndocs; d++) {
-                sampleTopicsForDoc(d); 
-            }
-        }
-        Console.OUT.println();
-
-    }
-
-    private def sampleTopicsForDoc(d:Long) {
-        for (var w:Long = 0; w < docs(d).size; w++) {
-           
-            
-            val wIndex = docs(d).words(w);
-            val oldTopic = docs(d).topics(w);
-            
-            // Subtract counts 
-            docTopicCounts(d,oldTopic)--;
-            typeTopicCounts(wIndex, oldTopic)--;
-            totalTypesPerTopic(oldTopic)--;
-            
-            var sum:Double = 0.0;
-        
-            for (var t:Long = 0; t < ntopics; t++) {
-                val weight:Double = makeTopicWeight(d, wIndex, t);
-                topicWeights(t) = weight;
-                sum += weight;
-            }
-
-                
-            var sample:Double = rand.nextDouble() * sum;
-            
-            var newTopic:Long = -1;
-            while (sample > 0.0 && newTopic < ntopics) {
-                newTopic++;
-                sample -= topicWeights(newTopic);
-            }
-           
-            if (newTopic >= ntopics || newTopic < 0)
-                Console.OUT.println("BAD TOPIC " + newTopic+"  "+docs(d).size +"  "+sum);
-            docTopicCounts(d,newTopic)++;
-            typeTopicCounts(wIndex, newTopic)++;
-            totalTypesPerTopic(newTopic)++;
-            docs(d).topics(w) = newTopic;
-        }
-
-    }
-
-    private def makeTopicWeight(d:Long, wIndex:Long, t:Long) : Double {
-        return (alpha + docTopicCounts(d,t)) * ((beta + typeTopicCounts(wIndex,t)) / (betaSum + totalTypesPerTopic(t)));
-    }
-
-
-    public def displayTopN(topn:Long, topic:Long) {
-
-        val topWords:Rail[Long] = new Rail[Long](topn);
-        val topCounts:Rail[Long] = new Rail[Long](topn);
-
-        val wordCounts:Rail[Long] = new Rail[Long](ntypes, (w:Long) => typeTopicCounts(w, topic));
-        for (var i:Long = 0; i < ntypes; i++) {
-
-            var j:Long = topn-1;
-            while (j >= 0) {
-                if (wordCounts(i) > topCounts(j)) {
-                    if (j+1 < topn) {
-                       topCounts(j+1) = topCounts(j);
-                       topWords(j+1) = topWords(j);
-                                        
-                    }
-                   topCounts(j) = wordCounts(i);
-                   topWords(j) = i;
-
-
-                } else {
-                    //if (j+1 < topn) {
-                    //    topCounts(j+1) = wordCounts(i);
-                   //     topWords(j+1) = i;
-                    //}
-        
-                    break;
-                }
-                
-                j--;
-            }
-      
-        }
-
-        for (var i:Long = 0; i < topn; i++) {
-            Console.OUT.print(vocab.getWord(topWords(i))+" ");
-            //Console.OUT.println(vocab.getWord(i)+": "+wordCounts(i));
-        }
-        Console.OUT.println();
-
-    }
-
-    public def logLikelihood() : Double {
-        return 42.0;
-    }
-    */
 }

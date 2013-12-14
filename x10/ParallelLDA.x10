@@ -68,7 +68,7 @@ public class ParallelLDA {
         finish for (worker in workers)
             async worker.initLocal();
 
-        shareCounts();
+        resync();
 
     }
 
