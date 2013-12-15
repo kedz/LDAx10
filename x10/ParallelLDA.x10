@@ -23,9 +23,13 @@ public class ParallelLDA {
     var totalSampleTime:Long = 0;
     var totalResyncTime:Long = 0;    
 
-    public def this(vocab:Vocabulary, docsFrags:ArrayList[Rail[Documents.Document]], ntopics:Long, alphaSum:Double, beta:Double, nthreads:Long) {
-    
-        this.ndocs = docsFrags.size();
+    val syncRate:Long;
+
+    public def this(vocab:Vocabulary, docsFrags:ArrayList[Rail[Documents.Document]], ntopics:Long, alphaSum:Double, beta:Double, nthreads:Long, syncRate:Long) {
+   
+        var ndocs:Long = 0;
+        for (docs in docsFrags) ndocs += docs.size; 
+        this.ndocs = ndocs;
         this.ntopics = ntopics;
         this.alpha = alphaSum / ntopics;
         this.alphaSum = alphaSum;
@@ -34,7 +38,8 @@ public class ParallelLDA {
         this.betaSum = this.ntypes * this.beta;
         this.vocab = vocab;
         this.nthreads = nthreads;
-        
+        this.syncRate = syncRate;
+
         workers = new Rail[LDAWorker](nthreads);
         for (var t:Long = 0; t < nthreads; t++)
             workers(t) = new LDAWorker(vocab, docsFrags.get(t), ntopics, alpha, beta, this.betaSum, t);
@@ -136,7 +141,7 @@ public class ParallelLDA {
             Console.OUT.print("*");
             Console.OUT.flush();
 
-            if (i % 2 == 0) {
+            if (i % syncRate == 0) {
                 val resyncStart:Long = Timer.milliTime();
                 Console.OUT.print("r");
                 Console.OUT.flush();
@@ -160,5 +165,45 @@ public class ParallelLDA {
     public def getTotalResyncTime() : Long {
         return totalResyncTime;
     }
+
+    public def logLikelihood() : Double {
+    
+        var logLikelihood:Double = 0.0;
+        for (worker in workers) {
+
+            for (var d:Long = 0; d < worker.ndocs; d++) {
+                for (var t:Long = 0; t < ntopics; t++) {
+                    if (worker.docTopicCounts(d,t) > 0) {
+                        logLikelihood += (MathUtils.logGamma(alpha + worker.docTopicCounts(d,t)))
+                                            - MathUtils.logGamma(alpha);
+                    }
+                }
+                logLikelihood -= MathUtils.logGamma(alphaSum + worker.docs(d).size);
+
+            }
+
+        }
+
+        logLikelihood += ndocs * MathUtils.logGamma(alphaSum);
+
+        var nonZeroTypeTopics:Long = 0;
+        for (var w:Long = 0; w < ntypes; w++) {
+            for (var t:Long = 0; t < ntopics; t++) {
+                if (workers(0).typeTopicCountsLocal(w,t) + workers(0).typeTopicCountsGlobal(w,t) == 0) continue;
+                nonZeroTypeTopics++;
+                logLikelihood += MathUtils.logGamma(beta + workers(0).typeTopicCountsLocal(w,t) + workers(0).typeTopicCountsGlobal(w,t));
+            }
+        }
+
+        for (var t:Long = 0; t < ntopics; t++) {
+            logLikelihood -= MathUtils.logGamma((beta * ntopics) + workers(0).totalTypesPerTopicLocal(t) + workers(0).totalTypesPerTopicGlobal(t));
+        }
+
+        logLikelihood += MathUtils.logGamma(beta * ntopics) - (MathUtils.logGamma(beta)* nonZeroTypeTopics);
+
+        return logLikelihood;
+    }
+
+
 
 }

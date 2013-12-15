@@ -18,9 +18,9 @@ public class PLDATester {
         var ntopics:Long = (args.size > 2) ? Long.parseLong(args(2)) : 20;
         var topn:Long = (args.size > 3) ? Long.parseLong(args(3)) : 10;
         var nthreads:Long = (args.size > 4) ? Long.parseLong(args(4)) : 1;
-
+        var syncRate:Long = (args.size > 5) ? Long.parseLong(args(5)): 2;
         if (args.size < 1) {
-            Console.OUT.println("LDATester [DOC-DIR [ITERATIONS [NTOPICS [TOPN [NTHREADS]]]]]");
+            Console.OUT.println("LDATester [DOC-DIR [ITERATIONS [NTOPICS [TOPN [NTHREADS [SYNCRATE]]]]]]");
             System.killHere();
         } else {
             dataDir = new File(args(0));
@@ -50,7 +50,7 @@ public class PLDATester {
 
         val initStart:Long = Timer.milliTime();
         
-        var plda:ParallelLDA = new ParallelLDA(vocab, docFrags, ntopics, 50.0, 0.01, nthreads);
+        var plda:ParallelLDA = new ParallelLDA(vocab, docFrags, ntopics, 50.0, 0.01, nthreads, syncRate);
         plda.printReport();  
         plda.init();
         
@@ -67,16 +67,19 @@ public class PLDATester {
         syncTime = plda.getTotalResyncTime();
         
         /** DISPLAY **/
+        
+        Console.OUT.println("TOP "+topn+" WORDS BY TOPIC\n=======================================\n");
         for (var t:Long = 0; t < ntopics; t++)
             plda.displayTopWords(topn, t);
+        Console.OUT.println();
+
+        Console.OUT.println("Model Log Likelihood: "+plda.logLikelihood()+"\n");
         
         Console.OUT.println("Time breakdown\n==============\n\n");
         Console.OUT.println("File IO Time       :   "+ioTime);
         Console.OUT.println("Matrix Init Time   :   "+initTime);
         Console.OUT.println("Sample Time        :   "+sampleTime);
         Console.OUT.println("Sync Time          :   "+syncTime);
-        
-
 
     }
 

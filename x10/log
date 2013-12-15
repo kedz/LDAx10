@@ -1,0 +1,40 @@
+/opt/x10/bin/x10c++ -O -VERBOSE_CHECKS -o DLDA DLDATester.x10 DistLDANode.x10 LDAWorker.x10 Vocabulary.x10 Documents.x10
+./DLDA ../datasets/sample_data 1000 20 15 2 2 2 5 
+Running in 2 places.
+Creating document vocabulary...
+Reading documents...
+...................................................................................................100...................................................................................................200...................................................................................................300...................................................................................................400...................................................................................................500...................................................................................................600...................................................................................................700...................................................................................................800...................................................................................................900...................................................................................................1000
+TOP 15 WORDS BY TOPIC
+=======================================
+
+( 0 )   form uranian narrow entertainment mayhem low common considerably faint virial stratum body complicate cross make
+( 1 )   gen day confederate defender century ruler music pillory survive island prentiss hubble species sunken confines
+( 2 )   ring dust uranus survive moon dark relative number return break main space band majority exist
+( 3 )   beauregard law discover road record formulum attack sentence stabilize close write history reinforcement water g
+( 4 )   heat work rest kill guinea lack command colloquially quantum tennessee bloodiest endemic night simply battery
+( 5 )   actor l receive edward introduction hackabout adaptation tazzy % additional maj brush composer kilometre partnership
+( 6 )   w satirical penzance extravaganza house find severe northern northeast theatre consist wide collide commonly james
+( 7 )   union thylacinus fossil radiation thousand style civil solid confine confuse dramatist significant equal olympus aerodynamic
+( 8 )   man numerous translational creek extended mechanism string find prediction division counterattack fragmentation portrait surprise douglas
+( 9 )   energy equipartition theorem average give temperature kinetic equilibrium capacity thermal effect classical fashionable hold statistical
+( 10 )   god fighting run defeat die century final hogarth society drive stability notorious moral father albert
+( 11 )   tasmanian tiger pouch extinct marsupial dog star tasmania male cynocephalus 20th external genus continent southwestern
+( 12 )   maximum drag pirates date intention addition bawd moll thick hunting bond arthur w confederate confederate
+( 13 )   thylacine back april wolf head relate devil success protection corona encroachment mink northern advertise carlos
+( 14 )   opera original include turn exclusive evening australia result highest ignore 3 production brig plate officially
+( 15 )   battle grant army confederate union line johnston hope force landing position pittsburg tennessee buell launch
+( 16 )   gilbert thespis greek s story popular victorian provide drama theater alsan eminent predator mammal exosphere
+( 17 )   act needham sullivan send england brothel report advance create fight record war native derive convergent
+( 18 )   time motion london genuine turn lose theater place wallace slightly western pinafore famous sex continental
+( 19 )   system particle comic stand william tassie exist relativistic habitat elliot large strictly understand confederate confederate
+
+Model Log Likelihood: -7168.757910824177088
+
+Time breakdown
+==============
+
+
+File IO Time       :   25
+Matrix Init Time   :   2
+Sample Time        :   844
+Sync Time          :   27325

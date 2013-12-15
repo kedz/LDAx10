@@ -1,5 +1,5 @@
 X10C=${X10_HOME}/bin/x10c++
-FLAGS=-O
+FLAGS=-O -VERBOSE_CHECKS
 
 all: LDA PLDA test test-ser-large test-par test-par-large
 
@@ -28,7 +28,10 @@ test-par-large: PLDA
 	./PLDA ../datasets/ap_data 1000 20 15 8
 
 test-dist: DLDA
-	./DLDA ../datasets/ap_data 1000 20 15 8 2  
+	./DLDA ../datasets/sample_data 1000 20 15 2 2 2 5 
+
+test-dist-large: DLDA
+	./DLDA ../datasets/ap_data 1000 20 15 8 4 2 5 
 
 test-io: IOTEST 
 	./IOTEST ../datasets/ap_data 1000 20 15 8 4  

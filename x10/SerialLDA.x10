@@ -182,7 +182,6 @@ public class SerialLDA {
     public def logLikelihood() : Double {
     
         var logLikelihood:Double = 0.0;
-        //var topicLogGamma:Double = MathUtils.logGamma(alpha);
         for (var d:Long = 0; d < ndocs; d++) {
             for (var t:Long = 0; t < ntopics; t++) {
                 if (docTopicCounts(d,t) > 0) {
@@ -190,6 +189,7 @@ public class SerialLDA {
                                         - MathUtils.logGamma(alpha);
                 }
             }
+
             logLikelihood -= MathUtils.logGamma(alphaSum + docs(d).size);
 
         }

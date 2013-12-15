@@ -5,12 +5,12 @@ import x10.util.Timer;
 
 public class LDAWorker {
 
-    val docs:Rail[Documents.Document];
+    public val docs:Rail[Documents.Document];
     val vocab:Vocabulary;
 
     val ntopics:Long;
     val ntypes:Long;
-    val ndocs:Long;
+    public val ndocs:Long;
 
     val alpha:Double;
     val beta:Double;
@@ -18,7 +18,7 @@ public class LDAWorker {
 
     val rand = new Random(Timer.milliTime());
 
-    val docTopicCounts:Array_2[Long];
+    public val docTopicCounts:Array_2[Long];
     
     public val typeTopicCountsLocal:Array_2[Long];
     public val typeTopicCountsGlobal:Array_2[Long];
@@ -198,7 +198,14 @@ public class LDAWorker {
         val topWords:Rail[Long] = new Rail[Long](topn);
         val topCounts:Rail[Long] = new Rail[Long](topn);
 
-        val wordCounts:Rail[Long] = new Rail[Long](ntypes, (w:Long) => typeTopicCountsLocal(w, topic) + typeTopicCountsGlobal(w, topic));
+        
+        var wordCounts:Rail[Long] = null;
+        if (useWorld) {
+            wordCounts = new Rail[Long](ntypes, (w:Long) => typeTopicCountsLocal(w, topic) + typeTopicCountsGlobal(w, topic) + typeTopicWorldCounts(w, topic));
+        } else {
+            wordCounts = new Rail[Long](ntypes, (w:Long) => typeTopicCountsLocal(w, topic) + typeTopicCountsGlobal(w, topic));
+        }
+
         for (var i:Long = 0; i < ntypes; i++) {
 
             var j:Long = topn-1;
