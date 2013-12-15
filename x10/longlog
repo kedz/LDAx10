@@ -1,0 +1,53 @@
+Running in 2 places.
+Creating document vocabulary...
+Reading documents...
+INIT COMPLETE
+Place(0)
+false
+[true,true]
+
+
+Place(1)
+false
+[true,true]
+
+
+100{Place(0)} 100{Place(1)} 200{Place(0)} 200{Place(1)} 300{Place(0)} 300{Place(1)} 400{Place(0)} 400{Place(1)} 500{Place(0)} 500{Place(1)} 600{Place(0)} 600{Place(1)} 700{Place(0)} 700{Place(1)} 800{Place(0)} 800{Place(1)} 900{Place(0)} 900{Place(1)} 1000{Place(0)} 
+1000{Place(1)} 
+TOP 15 WORDS BY TOPIC
+=======================================
+
+( 0 )   stock issue friday point market exchange today share week bond list close index day board
+( 1 )   s united u states soviet country west american trade talk east world official president foreign
+( 2 )   $ bill tax house program year committee congress budget money federal cut plan fund member
+( 3 )   military war force army iraq u troops government israel soldier rebel peace iran kuwait attack
+( 4 )   child year woman mrs show life home write wife time television live world book mother
+( 5 )   school student year family record play university work college bear make art black young john
+( 6 )   charge attorney drug trial prison case judge year investigation sentence office s u convict court
+( 7 )   area california mile southern test space foot move high launch coast m damage site central
+( 8 )   city state county san service york n water record j fair st time angeles department
+( 9 )   official people news newspaper report office return building release protest authority wednesday group day church
+( 10 )   court state law case decision claim file rights order federal rule appeal government action department
+( 11 )   $ price percent rate rise dollar market fall late year month increase sale bank trade
+( 12 )   health study people find computer medical make drug research center care problem university aid doctor
+( 13 )   air official force defense plane s flight fly report base ship accident pilot u airport
+( 14 )   government party leader soviet political member gorbachev country communist opposition president power national group republic
+( 15 )   bush president campaign vote dukakis democratic republican state reagan support election jackson candidate win presidential
+( 16 )   cent oil year food future farmer produce lower july farm week production ton higher expect
+( 17 )   $ company offer business corp inc share co plan sell bank sale executive base announce
+( 18 )   percent year worker work job month union report contract industry service strike increase labor accord
+( 19 )   police people man kill fire death south black home officer die arrest shoot monday car
+
+Model Log Likelihood: -4096465.768599317874759
+
+Time breakdown
+==============
+
+
+File IO Time       :   3921
+Matrix Init Time   :   237
+Sample Time        :   131384
+Sync Time          :   66395
+Transmit Time      :   507271
+Place(0) [0,50]
+Place(1) [50,0]

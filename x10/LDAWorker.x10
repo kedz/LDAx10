@@ -237,7 +237,6 @@ public class LDAWorker {
         Console.OUT.print("( "+topic+" )  "); 
         for (var i:Long = 0; i < topn; i++) {
             Console.OUT.print(" "+vocab.getWord(topWords(i)));
-            //Console.OUT.println(vocab.getWord(i)+": "+wordCounts(i));
         }
         Console.OUT.println();
 

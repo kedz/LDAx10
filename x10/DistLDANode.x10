@@ -3,11 +3,14 @@ import x10.util.ArrayList;
 import x10.util.Random;
 import x10.util.RailUtils;
 import x10.util.Timer;
+import x10.util.concurrent.Monitor;
+import x10.util.concurrent.AtomicBoolean;
 
 public class DistLDANode {
 
     val vocab:Vocabulary;
 
+    var nodes:PlaceLocalHandle[DistLDANode];
     public val ntopics:Long;
     public val ntypes:Long;
     public val ndocs:Long;
@@ -28,16 +31,21 @@ public class DistLDANode {
     public var typeTopicLocalCountsDelta:Array_2[Long];
     public var typeTopicLocalTotalsDelta:Rail[Long]; 
 
-    
+    public val visited:Rail[Boolean];    
+    public val gSyncLock:Monitor = new Monitor();
+    public val busy:AtomicBoolean = new AtomicBoolean(false); 
 
     val world:PlaceGroup.SimplePlaceGroup;
-
+    public var exchanges:Rail[Long];
 
     var totalSampleTime:Long = 0;
     var totalResyncTime:Long = 0;    
+    var totalTransmitTime:Long = 0;    
 
-    var done:Boolean = false;
+    public var done:Boolean = false;
     var talkingToWorld:Boolean = false;
+    var accepting:Boolean = false;
+    
 
     public def this(world:PlaceGroup.SimplePlaceGroup,
                     vocab:Vocabulary, 
@@ -47,6 +55,7 @@ public class DistLDANode {
                     beta:Double,
                     nthreads:Long) {
     
+            
         this.world = world;
         var ndocs:Long = 0;
         for (doc in docsFrags) ndocs += doc.size;
@@ -65,7 +74,6 @@ public class DistLDANode {
         this.typeTopicLocalCountsDelta = new Array_2[Long](ntypes, ntopics);
         this.typeTopicLocalTotalsDelta = new Rail[Long](ntopics);
 
-
         this.typeTopicWorldCounts = new Array_2[Long](ntypes, ntopics); 
         this.typeTopicWorldTotals = new Rail[Long](ntopics);
 
@@ -73,6 +81,12 @@ public class DistLDANode {
         for (var t:Long = 0; t < nthreads; t++)
             workers(t) = new LDAWorker(vocab, docsFrags.get(t), ntopics, alpha, beta, this.betaSum, t, typeTopicWorldCounts, typeTopicWorldTotals);
         
+        visited = new Rail[Boolean](world.numPlaces(), (i:Long) => true);
+        exchanges = new Rail[Long](world.numPlaces());
+    }
+
+    public def setNodes(nodes:PlaceLocalHandle[DistLDANode]) {
+        this.nodes = nodes;
     }
 
     public def toString():String {
@@ -121,23 +135,8 @@ public class DistLDANode {
                         totalWordsPerTopic += worker.totalTypesPerTopicLocal(t);                    
                     for (worker in workers)
                         worker.totalTypesPerTopicGlobal(t) = totalWordsPerTopic - worker.totalTypesPerTopicLocal(t);
-                    typeTopicLocalTotalsDelta(t) = totalWordsPerTopic;// - typeTopicLocalTotalsOld(t);                                   
-                    //typeTopicLocalTotalsOld(t) = totalWordsPerTopic;                                   
-                    /*
-                    if (transmit && deltaTot != 0 ) {
-                        val tVal = t;
-                        Console.OUT.println("Topic: "+tVal);
-                        
-                        for (p in world) {
-                            if (p.id != here.id) {
-                                at (p) {
-                                    typeTopicWorldTotalsPlh()(tVal) += deltaTot;
-                                }
-                            }
-                        }
+                    //typeTopicLocalTotalsDelta(t) = totalWordsPerTopic;// - typeTopicLocalTotalsOld(t);                                   
 
-                    }
-                    */
                     for (var w:Long = 0; w < ntypes; w++) {
                         var typeCount:Long = 0;
                         for (worker in workers) 
@@ -145,69 +144,15 @@ public class DistLDANode {
                         for (worker in workers)
                             worker.typeTopicCountsGlobal(w,t) = typeCount - worker.typeTopicCountsLocal(w,t);
                         
-                        typeTopicLocalCountsDelta(w,t) = typeCount;// - typeTopicLocalCountsOld(w,t);                                   
-                        //typeTopicLocalCountsOld(w,t) = typeCount;   
-
-
-                        /*
-                        val delta = typeCount - typeTopicLocalCountsOld(w,t);                                   
-                        typeTopicLocalCountsOld(w,t) = typeCount;   
-                        if (transmit && delta != 0 ) {
-                            val wVal = w;
-                            val tVal = t;
-                            for (p in world) {
-                                if (p != here) {
-                                    at (p) {
-                                        typeTopicWorldCountsPlh()(wVal,tVal) += delta;
-                                    }
-                                }
-                            }
-
-                        }
-                        */                                
+                       //typeTopicLocalCountsDelta(w,t) = typeCount;// - typeTopicLocalCountsOld(w,t);                                   
                     }
 
                 }
             }
         }
 
-        /*
-        if (!talkingToWorld) {
-            talkingToWorld = true;
-*/
-/*
-        Console.OUT.println("Communicating from "+here);
-        finish for (p in world) {
-            if (p != here) {
-                async { 
-                    //at (p) {
-                        for (var t:Long = 0; t < ntopics; t++) {
-                            val tVal = t;
-                            if (typeTopicLocalTotalsDelta(tVal) != 0) {
-                                val c = typeTopicLocalTotalsDelta(tVal);
-                                at (p) typeTopicWorldTotalsPlh()(tVal) += c;    
-                            }
-
-                            for (var w:Long = 0; w < ntypes; w++) {
-                                val wVal = w;
-                                if (typeTopicLocalCountsDelta(wVal,tVal) != 0) {
-                                    val c = typeTopicLocalCountsDelta(wVal,tVal);
-                                    at (p) typeTopicWorldCountsPlh()(wVal,tVal) += c;
-                                
-                                }
-                            }
-
-                        }
-                        
-                    //}
-                }
-            }
-        
-          //  talkingToWorld = false;
-        }
-  */      
-       // }
     }
+
 
 
     public def sampleOneIteration() {
@@ -221,61 +166,188 @@ public class DistLDANode {
     }
 
 
-    public def sample(niters:Long) {
-
+    public def sample(niters:Long, localSyncRate:Long, globalSyncRate:Long) {
+        
+        // done flag is set to true when we have finished all of our work.
         done = false;
+        
+        // If we are busy, someone is writing to our global counts matrix -- wait for them to finish.
+        while (!busy.compareAndSet(false,true)) {}
 
         for (var i:Long = 1; i <= niters; i++) {
-            if (i%100 == 0) 
+            if (i%100 == 0) {
                 Console.OUT.print(i+"{"+here+"} ");
-            //else
-            //    Console.OUT.print(".");
-            Console.OUT.flush();
+                Console.OUT.flush();
+            }
 
             val sampleStart:Long = Timer.milliTime();
+            
+            /** Sampling - must lock down all matrices **/
             finish for (worker in workers) {
                 async worker.oneSampleIteration(); 
             }
             totalSampleTime += Timer.milliTime() - sampleStart;
-            Console.OUT.print("*");
-            Console.OUT.flush();
 
-            if (i % 2 == 0) {
-                //val transmit = (i % 10 == 0) ? true : false;
+            if (i % localSyncRate == 0) {
                 val resyncStart:Long = Timer.milliTime();
-                Console.OUT.print("r");
-                Console.OUT.flush();
                 resync();
-                Console.OUT.print("R");
-                Console.OUT.flush();
                 totalResyncTime += Timer.milliTime() - resyncStart;
             }
+
+            if (i % globalSyncRate == 0) {
+                //Console.OUT.println(here+" Looking to resync..."); 
+                //gSyncLock.unlock();
+                val startTransmit = Timer.milliTime();
+                var reset:Boolean = true;
+                for (var p:Long = 0; p < world.numPlaces(); p++) 
+                    if (!visited(p)) reset = false;
+                if (reset) {
+                    //Console.OUT.println("Reseting");
+                    for (var p:Long = 0; p < world.numPlaces(); p++) {
+                        if (p != here.id)
+                            visited(p) = false;
+                       
+                    }
+                    //Console.OUT.println(here+" : "+visited);
+                    calculateNewCounts();    
+                }
+                //Console.OUT.println(here+" : Looking to share counts.");
+                busy.set(false);
+                shareCounts();
+                totalTransmitTime += Timer.milliTime() - startTransmit;
+                //Console.OUT.println(here+" Finished transmitting - looking to get lock.");
+                //while (!gSyncLock.tryLock()) {}
+                //Console.OUT.println(here+" Finished transmitting - got lock.");
+                
+            }
         }
+        busy.set(false);
         done = true;
         Console.OUT.println();
     }
 
-    public def shareCounts(p:Place, nodePlh:PlaceLocalHandle[DistLDANode]) {
-        for (var topic:Long = 0; topic < ntopics; topic++) {
-            val t = topic;
-            for (var word:Long = 0; word < ntypes; word++) {
-                val w = word;
-                if (typeTopicLocalCountsDelta(w,t) != 0) {
-                    val c = typeTopicLocalCountsDelta(w,t);
-                    at (p) {
-                        nodePlh().typeTopicWorldCounts(w,t) += c;
-                    }
-                }
-            }
+    private def calculateNewCounts() {
+        val step:Long = (ntopics / nthreads) + 1;
+        finish for (var topics:Long = 0; topics < ntopics; topics += step) {
+            val topicVal = topics;
+            val limit = Math.min(ntopics, topicVal+step);
+            async {
 
-            if (typeTopicLocalTotalsDelta(t) != 0) {
-                val c = typeTopicLocalTotalsDelta(t);
-                at (p) {
-                    nodePlh().typeTopicWorldTotals(t) += c;
+                for (var t:Long = topicVal; t < limit; t++) {
+                    
+                    var totalWordsPerTopic:Long = 0;
+                    for (worker in workers)
+                        totalWordsPerTopic += worker.totalTypesPerTopicLocal(t);                    
+                    typeTopicLocalTotalsOld(t) = typeTopicLocalTotalsDelta(t);
+                    typeTopicLocalTotalsDelta(t) = totalWordsPerTopic;// - typeTopicLocalTotalsOld(t);                                   
+
+                    for (var w:Long = 0; w < ntypes; w++) {
+                        var typeCount:Long = 0;
+                        for (worker in workers) 
+                            typeCount += worker.typeTopicCountsLocal(w,t);
+                        typeTopicLocalCountsOld(w,t) = typeTopicLocalCountsDelta(w,t);
+                        typeTopicLocalCountsDelta(w,t) = typeCount;// - typeTopicLocalCountsOld(w,t);                                   
+                    }
+
                 }
             }
         }
 
+    }
+
+    public def shareCounts() {
+        
+        val nodesPlh = nodes;
+        //accepting = true;
+        
+        var pIndex:Long = -1;
+        
+        // Need to reset visited
+        // Need to safe guard lock;
+        // need to implement lock
+        // only update counts after visiting all places
+        
+        while (pIndex < 0) {
+        
+            for (var i:Long = 0; i < world.numPlaces(); i++) {
+                if (!visited(i)) {
+                    val hasLock:GlobalRef[Cell[Boolean]] = new GlobalRef[Cell[Boolean]](new Cell[Boolean](false));
+                    //Console.OUT.println(here+ " : about to visit "+world(i));
+                    at (world(i)) {
+                        //if (nodes().accepting) {
+                            //Console.OUT.println(nodes().gSyncLock.getHoldCount());
+                            //val success = nodesPlh().gSyncLock.tryLock();
+                            val success = nodesPlh().busy.compareAndSet(false,true);
+                            //val success = true;
+                            //Console.OUT.println(here+": "+success);
+                            at (hasLock.home) {
+                                hasLock()() = success;
+                            }
+                        //}
+                    }
+                    if (hasLock.getLocalOrCopy()())
+                        pIndex = i; 
+                }
+                
+            }
+            /*
+            if (pIndex == -1) {
+                for (var i:Long = 0; i < world.numPlaces(); i++) visited(i) = false;
+            }
+            */
+        }
+        visited(pIndex) = true;
+        exchanges(pIndex)++;
+
+        val step:Long = (ntopics / nthreads)+1;
+        //Console.OUT.println(here+" : Exchanging with "+world(pIndex));
+        finish for (var topicStart:Long = 0; topicStart < ntopics; topicStart+=step) {
+            //Console.OUT.println(here + " : TOPIC "+topic+" to "+world(pIndex));
+            
+            val topicStartVal = topicStart;
+            val limit = Math.min(ntopics, topicStartVal+step);
+            async {
+                for (var topic:Long = topicStartVal; topic < limit; topic++) {
+                    val t = topic;
+
+
+                    val newC = typeTopicLocalTotalsDelta(t);
+                    val oldC = typeTopicLocalTotalsOld(t);
+                    val c = newC - oldC;
+                        
+                    if (c != 0) {
+                        //Console.OUT.println(here + " :NONZERO TOPIC "+t+" to "+world(pIndex));
+                        at (world(pIndex)) {
+                            //val tHere = t;
+                            //val cHere = c;
+                            //val totals = nodesPlh().typeTopicWorldTotals;
+                            //Console.OUT.println(here + " :NONZERO TOPIC "+t+" to transmitted.");
+                            //Console.OUT.println(c);
+                            //totals(tHere) += cHere;
+                            nodesPlh().typeTopicWorldTotals(t) += c;
+                        }
+                    }
+
+                    //Console.OUT.println(here + " transmitting topic "+t+" word updates...");
+                    for (var word:Long = 0; word < ntypes; word++) {
+                        val w = word;
+                        val newWC = typeTopicLocalCountsDelta(w,t);
+                        val oldWC = typeTopicLocalCountsOld(w,t);
+                        val wc = newWC - oldWC;
+                        if (wc != 0) {                    
+                            at (world(pIndex)) {
+                                nodesPlh().typeTopicWorldCounts(w,t) += wc;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        at (world(pIndex)) {
+            nodesPlh().busy.set(false);
+            //nodesPlh().gSyncLock.unlock();
+        }
     }
 
     public def displayTopWords(topn:Long, topic:Long) {
@@ -290,4 +362,8 @@ public class DistLDANode {
         return totalResyncTime;
     }
 
+    public def getTotalTransmitTime() : Long {
+        return totalTransmitTime;
+    }
+    
 }

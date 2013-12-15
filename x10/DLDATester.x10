@@ -11,10 +11,10 @@ public class DLDATester {
         /* Timing info*/
         var ioTime:Long;
         var initTime:Long;
-        var sampleTime:Long = 0;
-        var syncTime:Long = 0;
+        val sampleTime:GlobalRef[Cell[Long]] = new GlobalRef[Cell[Long]](new Cell[Long](0));
+        val syncTime:GlobalRef[Cell[Long]] = new GlobalRef[Cell[Long]](new Cell[Long](0));
+        val transmitTime:GlobalRef[Cell[Long]] = new GlobalRef[Cell[Long]](new Cell[Long](0));
         
-
         var dataDir:File = null;
         val niters:Long = (args.size > 1) ? Long.parseLong(args(1)) : 1000;
         val ntopics:Long = (args.size > 2) ? Long.parseLong(args(2)) : 20;
@@ -64,7 +64,7 @@ public class DLDATester {
         val initStart = Timer.milliTime();
         
         val dlda:PlaceLocalHandle[DistLDANode] = 
-            PlaceLocalHandle.make[DistLDANode](places, () => new DistLDANode(places,
+            PlaceLocalHandle.make[DistLDANode](places, () => new DistLDANode(places,                                                                             
                                                                              vocabPlh(), 
                                                                              ddocs.plh()(),
                                                                              ntopics,
@@ -72,7 +72,12 @@ public class DLDATester {
                                                                              0.01,
                                                                              nthreads));
         
-         
+        for (p in places) {
+            at (p) {
+                dlda().setNodes(dlda);
+            }
+        }
+
         finish for (p in places) {
             at (p) {
                 async {
@@ -80,104 +85,65 @@ public class DLDATester {
                 }
             }
         }
+
+        initTime = Timer.milliTime() - initStart;
+        Console.OUT.println("INIT COMPLETE");
+        //var done:GlobalRef[Cell[Boolean]] = new GlobalRef[Cell[Boolean]](new Cell[Boolean](false));
+        for (p in places) {
+            at (p) {
+                Console.OUT.println(p);
+                Console.OUT.println(dlda().done);
+                Console.OUT.println(dlda().visited);
+                Console.OUT.println("\n");
+            }
+        }
+
         
         initTime = Timer.milliTime() - initStart;
-              //   val syncStart = Timer.milliTime();
-                for (p in places) {    
-                    for (q in places) {
-                        if (p.id != q.id) {
-                            val oPlace = q;
-                            at (p) {                
-                                dlda().shareCounts(oPlace, dlda);
-                            }
-                        }
-                    }
-                }
-                //syncTime += Timer.milliTime() - syncStart;
+        for (p in places) {
+            async at (p) {
+                dlda().sample(niters, localSyncRate, globalSyncRate);
+                //dlda().sample(niters, localSyncRate, globalSyncRate);
+            }
+        }
 
-
-
-        
-        for (var i:Long = 1; i <= niters; i++) {
-            if (i % 100 == 0)
-                Console.OUT.print(i);
-            else
-                Console.OUT.print(".");
-            Console.OUT.flush();
-
-            val cntr = i;
-            
-            val sampleStart = Timer.milliTime();
-            finish for (p in places) {
+        val done:GlobalRef[Cell[Boolean]] = new GlobalRef[Cell[Boolean]](new Cell[Boolean](false));
+        while (!done.getLocalOrCopy()()) {
+            done.getLocalOrCopy()() = true;
+            for (p in places) {
                 at (p) {
-                    async {
-                        dlda().sampleOneIteration();
-                        if (cntr % localSyncRate == 0)
-                            dlda().resync();
+                    val workerDone = dlda().done; 
+                    if (!workerDone) {
+                        at (done.home) {
+                            done()() = false; 
+                        }
                     }
-                }
-            }
-            sampleTime += Timer.milliTime() - sampleStart;
 
-            
-            if (cntr % globalSyncRate == 0) {
-                val syncStart = Timer.milliTime();
-                finish for (p in places) {
-                    async at (p) {
-                        for (var t:Long = 0; t < ntopics; t++) {
-                            for (var w:Long = 0; w < ntypes; w++) {
-                                dlda().typeTopicWorldCounts(w,t) = 0;
-                            }
-                            dlda().typeTopicWorldTotals(t) = 0;
-                        }
-                    }
                 }
-                
-                for (p in places) {    
-                    for (q in places) {
-                        if (p.id != q.id) {
-                            val oPlace = q;
-                            at (p) {                
-                                dlda().shareCounts(oPlace, dlda);
-                            }
-                        }
-                    }
-                }
-                syncTime += Timer.milliTime() - syncStart;
             }
         }
-        Console.OUT.println();
 
-/*
+
         for (p in places) {
-            Console.OUT.println(p);
+
             at (p) {
-                Console.OUT.println("Place "+here);
-                if (here.id != 0) 
-                    typeTopicWorldCounts()(0,0) += 4;
-                Console.OUT.println(typeTopicWorldCounts());
+                val samTime = dlda().getTotalSampleTime();
+                val synTime = dlda().getTotalResyncTime();
+                val transTime = dlda().getTotalTransmitTime();
+
+                at (sampleTime.home) {
+                    sampleTime()() += samTime;
+                }
+
+                at (syncTime.home) {
+                    syncTime()() += synTime;
+                }
+
+                at (transmitTime.home) {
+                    transmitTime()() += transTime;
+                }
             }
         }
-*/
-        /*
-        for (p in places) {
-            Console.OUT.println("AT PLACE "+p);
-            at (p) {
-                         
-                for (var t:Long = 0; t < ddocs.plh()().size(); t++) {
-                    Console.OUT.println("\t Thread "+t);    
-                    for (doc in ddocs.plh()().get(t)) {
-                        for (w in doc.words) {
-                            Console.OUT.print(vocabPlh().getWord(w)+" ");    
-                        }
-                        Console.OUT.println("\n");
-                    }
-                    Console.OUT.println("\nttttttttttttttttttt\n\n");
-                }   
-                Console.OUT.println("\nppppppppppppppppppppppp\n\n"); 
-            }
-        }
-        */
 
         /** DISPLAY **/
         
@@ -192,9 +158,17 @@ public class DLDATester {
         Console.OUT.println("Time breakdown\n==============\n\n");
         Console.OUT.println("File IO Time       :   "+ioTime);
         Console.OUT.println("Matrix Init Time   :   "+initTime);
-        Console.OUT.println("Sample Time        :   "+sampleTime);
-        Console.OUT.println("Sync Time          :   "+syncTime);
- 
+        Console.OUT.println("Sample Time        :   "+sampleTime.getLocalOrCopy()());
+        Console.OUT.println("Sync Time          :   "+syncTime.getLocalOrCopy()());
+        Console.OUT.println("Transmit Time      :   "+transmitTime.getLocalOrCopy()());
+
+        for (p in places) {
+            at (p) {   
+                Console.OUT.println(p+" "+dlda().exchanges);
+            }
+        }
+
+        
 
    }
 
