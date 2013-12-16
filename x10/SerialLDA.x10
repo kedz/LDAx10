@@ -65,6 +65,7 @@ public class SerialLDA {
                 Console.OUT.print(i);
             else
                 Console.OUT.print(".");
+            Console.OUT.flush();    
 
             for (var d:Long = 0; d < ndocs; d++) {
                 sampleTopicsForDoc(d); 

@@ -11,7 +11,7 @@ public class PLDATester {
         var initTime:Long;
         var sampleTime:Long;
         var syncTime:Long;
-        
+        var runTime:Long = 0;        
 
         var dataDir:File = null;
         var niters:Long = (args.size > 1) ? Long.parseLong(args(1)) : 1000;
@@ -31,6 +31,7 @@ public class PLDATester {
 
         }
 
+        val runtimeStart:Long = Timer.milliTime();
 
         /** FILE IO **/
 
@@ -66,6 +67,8 @@ public class PLDATester {
         sampleTime = plda.getTotalSampleTime();
         syncTime = plda.getTotalResyncTime();
         
+        runTime = Timer.milliTime() - runtimeStart; 
+
         /** DISPLAY **/
         
         Console.OUT.println("TOP "+topn+" WORDS BY TOPIC\n=======================================\n");
@@ -80,7 +83,7 @@ public class PLDATester {
         Console.OUT.println("Matrix Init Time   :   "+initTime);
         Console.OUT.println("Sample Time        :   "+sampleTime);
         Console.OUT.println("Sync Time          :   "+syncTime);
-
+        Console.OUT.println("Runtime            :   "+runTime);
     }
 
 

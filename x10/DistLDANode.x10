@@ -11,43 +11,69 @@ import x10.util.HashMap;
 public class DistLDANode {
 
     val vocab:Vocabulary;
-
+    
+    // PLH for communicating to nodes at other places
     var nodes:PlaceLocalHandle[DistLDANode];
+    
+    // number of topics
     public val ntopics:Long;
+
+    //number of word types
     public val ntypes:Long;
+    // number of docs in this node
     public val ndocs:Long;
 
+    // smoothing parameters
     public val alpha:Double;
     public val alphaSum:Double;
     public val beta:Double;
     public val betaSum:Double;
     
+    //number of threads for this node to use
     val nthreads:Long;
+    // Each worker runs on its own thread
     public val workers:Rail[DLDAWorker];
+
+    // typeTopicCount matrix for the rest of the world(other node's counts)
+    // This is initially a 0 matrix, but will get added to when another node
+    // sends us its counts
     public val typeTopicWorldCounts:Array_2[Long];
+   
+    // total words assigned to each topic for the world(other node's counts)
+    // We can calculate this from typeTopicWorldCounts but it is faster to precompute and store.
     public val typeTopicWorldTotals:Rail[Long]; 
 
+
+    // When sharing counts with another node, if we have already shared counts with this node,
+    // we must subtract the last counts we gave before adding new ones. These old counts are stored here.
     public var typeTopicLocalCountsOld:Array_2[Long];
     public var typeTopicLocalTotalsOld:Rail[Long]; 
-    
+   
+    // The counts are the latest node state that we are sharing with another node. 
     public var typeTopicLocalCountsDelta:Array_2[Long];
     public var typeTopicLocalTotalsDelta:Rail[Long]; 
 
+    // Track which places we have visited
     public val visited:Rail[Boolean];    
-    public val gSyncLock:Monitor = new Monitor();
+    // Boolean flag for locking this node when sampling/sharing counts
     public val busy:AtomicBoolean = new AtomicBoolean(false); 
-
+    
+    // known places
     val world:PlaceGroup.SimplePlaceGroup;
+
+    //Counts for the number of times we have shared to each node
     public var exchanges:Rail[Long];
 
     var totalSampleTime:Long = 0;
     var totalResyncTime:Long = 0;    
     var totalTransmitTime:Long = 0;    
 
+    // true when all sampling finished
     public var done:Boolean = false;
-    var talkingToWorld:Boolean = false;
-    var accepting:Boolean = false;
     
+    // not all of the words in the vocabulary will exist in this node
+    // our count matrices can be smaller than the whole matrix -- this is
+    // a mapy from a global vocab index to the node local vocab index.
     public val nodeIndicesMap:HashMap[Long,Long];
 
     public def this(world:PlaceGroup.SimplePlaceGroup,
@@ -134,6 +160,7 @@ public class DistLDANode {
 
     }
 
+    // Sync counts between threads
     public def resync() {
        
         val step:Long = (ntopics / nthreads) + 1;
@@ -178,18 +205,6 @@ public class DistLDANode {
     }
 
 
-
-    public def sampleOneIteration() {
-
-        val sampleStart:Long = Timer.milliTime();
-        finish for (worker in workers) {
-            async worker.oneSampleIteration(); 
-        }
-        totalSampleTime += Timer.milliTime() - sampleStart;
-
-    }
-
-
     public def sample(niters:Long, localSyncRate:Long, globalSyncRate:Long) {
         
         // done flag is set to true when we have finished all of our work.
@@ -206,42 +221,37 @@ public class DistLDANode {
 
             val sampleStart:Long = Timer.milliTime();
             
-            /** Sampling - must lock down all matrices **/
+            /** Sampling - **/
             finish for (worker in workers) {
                 async worker.oneSampleIteration(); 
             }
             totalSampleTime += Timer.milliTime() - sampleStart;
 
+            // local syncing amongst threads
             if (i % localSyncRate == 0) {
                 val resyncStart:Long = Timer.milliTime();
                 resync();
                 totalResyncTime += Timer.milliTime() - resyncStart;
             }
 
+            // global syncing amongst places
             if (i % globalSyncRate == 0) {
-                //Console.OUT.println(here+" Looking to resync..."); 
-                //gSyncLock.unlock();
+                
                 val startTransmit = Timer.milliTime();
                 var reset:Boolean = true;
                 for (var p:Long = 0; p < world.numPlaces(); p++) 
                     if (!visited(p)) reset = false;
                 if (reset) {
-                    //Console.OUT.println("Reseting");
                     for (var p:Long = 0; p < world.numPlaces(); p++) {
                         if (p != here.id)
                             visited(p) = false;
                        
                     }
-                    //Console.OUT.println(here+" : "+visited);
                     calculateNewCounts();    
                 }
-                //Console.OUT.println(here+" : Looking to share counts.");
                 busy.set(false);
                 shareCounts();
                 totalTransmitTime += Timer.milliTime() - startTransmit;
-                //Console.OUT.println(here+" Finished transmitting - looking to get lock.");
-                //while (!gSyncLock.tryLock()) {}
-                //Console.OUT.println(here+" Finished transmitting - got lock.");
                 
             }
         }
@@ -250,6 +260,7 @@ public class DistLDANode {
         Console.OUT.println();
     }
 
+    // calculate the counts to send to the world
     private def calculateNewCounts() {
         val step:Long = (ntopics / nthreads) + 1;
         finish for (var topics:Long = 0; topics < ntopics; topics += step) {
@@ -288,51 +299,32 @@ public class DistLDANode {
     public def shareCounts() {
         
         val nodesPlh = nodes;
-        //accepting = true;
         
         var pIndex:Long = -1;
         
-        // Need to reset visited
-        // Need to safe guard lock;
-        // need to implement lock
-        // only update counts after visiting all places
-        
+        // find someone to share with. 
         while (pIndex < 0) {
         
             for (var i:Long = 0; i < world.numPlaces(); i++) {
                 if (!visited(i)) {
                     val hasLock:GlobalRef[Cell[Boolean]] = new GlobalRef[Cell[Boolean]](new Cell[Boolean](false));
-                    //Console.OUT.println(here+ " : about to visit "+world(i));
                     at (world(i)) {
-                        //if (nodes().accepting) {
-                            //Console.OUT.println(nodes().gSyncLock.getHoldCount());
-                            //val success = nodesPlh().gSyncLock.tryLock();
-                            val success = nodesPlh().busy.compareAndSet(false,true);
-                            //val success = true;
-                            //Console.OUT.println(here+": "+success);
-                            at (hasLock.home) {
-                                hasLock()() = success;
-                            }
-                        //}
+                        val success = nodesPlh().busy.compareAndSet(false,true);
+                        at (hasLock.home) {
+                            hasLock()() = success;
+                        }
                     }
                     if (hasLock.getLocalOrCopy()())
                         pIndex = i; 
                 }
                 
             }
-            /*
-            if (pIndex == -1) {
-                for (var i:Long = 0; i < world.numPlaces(); i++) visited(i) = false;
-            }
-            */
         }
         visited(pIndex) = true;
         exchanges(pIndex)++;
 
         val step:Long = (ntopics / nthreads)+1;
-        //Console.OUT.println(here+" : Exchanging with "+world(pIndex));
         finish for (var topicStart:Long = 0; topicStart < ntopics; topicStart+=step) {
-            //Console.OUT.println(here + " : TOPIC "+topic+" to "+world(pIndex));
             
             val topicStartVal = topicStart;
             val limit = Math.min(ntopics, topicStartVal+step);
@@ -346,19 +338,11 @@ public class DistLDANode {
                     val c = newC - oldC;
                         
                     if (c != 0) {
-                        //Console.OUT.println(here + " :NONZERO TOPIC "+t+" to "+world(pIndex));
                         at (world(pIndex)) {
-                            //val tHere = t;
-                            //val cHere = c;
-                            //val totals = nodesPlh().typeTopicWorldTotals;
-                            //Console.OUT.println(here + " :NONZERO TOPIC "+t+" to transmitted.");
-                            //Console.OUT.println(c);
-                            //totals(tHere) += cHere;
                             nodesPlh().typeTopicWorldTotals(t) += c;
                         }
                     }
 
-                    //Console.OUT.println(here + " transmitting topic "+t+" word updates...");
                     for (w in nodeIndicesMap.keySet()) {
                         val nindices = nodeIndicesMap.get(w)();
                         val word = w;
@@ -378,7 +362,6 @@ public class DistLDANode {
 
         at (world(pIndex)) {
             nodesPlh().busy.set(false);
-            //nodesPlh().gSyncLock.unlock();
         }
     }
 

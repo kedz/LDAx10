@@ -14,7 +14,10 @@ public class DLDATester {
         val sampleTime:GlobalRef[Cell[Long]] = new GlobalRef[Cell[Long]](new Cell[Long](0));
         val syncTime:GlobalRef[Cell[Long]] = new GlobalRef[Cell[Long]](new Cell[Long](0));
         val transmitTime:GlobalRef[Cell[Long]] = new GlobalRef[Cell[Long]](new Cell[Long](0));
-        
+        var runTime:Long = 0;        
+       
+
+        // READ IN ARGUMENTS 
         var dataDir:File = null;
         val niters:Long = (args.size > 1) ? Long.parseLong(args(1)) : 1000;
         val ntopics:Long = (args.size > 2) ? Long.parseLong(args(2)) : 20;
@@ -39,6 +42,7 @@ public class DLDATester {
         val places = PlaceGroup.make(nplaces);
         Console.OUT.println("Running in "+places.numPlaces()+" places.");
 
+        val runtimeStart:Long = Timer.milliTime();
 
          /** FILE IO **/
 
@@ -55,8 +59,6 @@ public class DLDATester {
         ioTime = Timer.milliTime() - ioStart;
 
         val ntypes = vocab.size();
-        //val typeTopicWorldCounts = PlaceLocalHandle.make[Array_2[Long]](places, () => new Array_2[Long](ntypes, ntopics));
-        //val typeTopicWorldTotals = PlaceLocalHandle.make[Rail[Long]](places, () => new Rail[Long](ntopics));
 
 
         /** INIT MATRICES **/
@@ -71,17 +73,13 @@ public class DLDATester {
                                                                              50.0,
                                                                              0.01,
                                                                              nthreads));
-        
-        for (p in places) {
-            at (p) {
-                dlda().setNodes(dlda);
-            }
-        }
-
+        //Init matrices and give everyone a PLH to their fellow nodes.       
         finish for (p in places) {
             at (p) {
                 async {
+                    dlda().setNodes(dlda);
                     dlda().init();
+                    dlda().printReport();  
                 }
             }
         }
@@ -89,15 +87,6 @@ public class DLDATester {
         
         initTime = Timer.milliTime() - initStart;
         Console.OUT.println("INIT COMPLETE");
-        //var done:GlobalRef[Cell[Boolean]] = new GlobalRef[Cell[Boolean]](new Cell[Boolean](false));
-        for (p in places) {
-            at (p) {
-                Console.OUT.println(p);
-                Console.OUT.println(dlda().done);
-                Console.OUT.println(dlda().visited);
-                Console.OUT.println("\n");
-            }
-        }
 
        
        /** SAMPLE **/ 
@@ -105,10 +94,10 @@ public class DLDATester {
         for (p in places) {
             async at (p) {
                 dlda().sample(niters, localSyncRate, globalSyncRate);
-                //dlda().sample(niters, localSyncRate, globalSyncRate);
             }
         }
 
+        // Ping until everyone is done.
         val done:GlobalRef[Cell[Boolean]] = new GlobalRef[Cell[Boolean]](new Cell[Boolean](false));
         while (!done.getLocalOrCopy()()) {
             done.getLocalOrCopy()() = true;
@@ -126,6 +115,7 @@ public class DLDATester {
         }
 
 
+        // Collect stats
         for (p in places) {
 
             at (p) {
@@ -147,6 +137,8 @@ public class DLDATester {
             }
         }
 
+        runTime = Timer.milliTime() - runtimeStart; 
+        
         /** DISPLAY **/
         
         Console.OUT.println("TOP "+topn+" WORDS BY TOPIC\n=======================================\n");
@@ -163,10 +155,15 @@ public class DLDATester {
         Console.OUT.println("Sample Time        :   "+sampleTime.getLocalOrCopy()());
         Console.OUT.println("Sync Time          :   "+syncTime.getLocalOrCopy()());
         Console.OUT.println("Transmit Time      :   "+transmitTime.getLocalOrCopy()());
+        Console.OUT.println("Runtime            :   "+runTime);
 
+        Console.OUT.println("\nPlace exchanges:");
         for (p in places) {
             at (p) {   
-                Console.OUT.println(p+" "+dlda().exchanges);
+                Console.OUT.print(p);
+                for (e in dlda().exchanges)
+                    Console.OUT.print(" "+e);
+                Console.OUT.println();
             }
         }
 

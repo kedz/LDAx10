@@ -9,6 +9,7 @@ public class LDATester {
         var ioTime:Long = 0;
         var initTime:Long = 0;
         var sampleTime:Long = 0;
+        var runTime:Long = 0;
         
         var dataDir:File = null;
         var niters:Long = (args.size > 1) ? Long.parseLong(args(1)) : 1000;
@@ -26,6 +27,8 @@ public class LDATester {
             }
 
         }
+
+        val runtimeStart = Timer.milliTime();
 
         /** FILE IO **/
 
@@ -58,6 +61,7 @@ public class LDATester {
         
         sampleTime = Timer.milliTime() - sampleStart;
         
+        runTime = Timer.milliTime() - runtimeStart; 
 
         /** DISPLAY **/
 
@@ -72,6 +76,7 @@ public class LDATester {
         Console.OUT.println("File IO Time       :   "+ioTime);
         Console.OUT.println("Matrix Init Time   :   "+initTime);
         Console.OUT.println("Sample Time        :   "+sampleTime);
+        Console.OUT.println("Runtime            :   "+runTime);
 
     }
 

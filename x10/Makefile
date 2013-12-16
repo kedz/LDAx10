@@ -1,7 +1,7 @@
 X10C=${X10_HOME}/bin/x10c++
 FLAGS=-O -VERBOSE_CHECKS
 
-all: LDA PLDA DLDA test-ser-large test-par-large test-dist-large
+test: LDA PLDA DLDA test-ser-large test-par-large test-dist-large
 
 LDA: LDATester.x10 SerialLDA.x10 Vocabulary.x10 Documents.x10 MathUtils.x10
 	$(X10C) $(FLAGS) -o $@ $^
@@ -15,8 +15,8 @@ DLDA: DLDATester.x10 DistLDANode.x10 DLDAWorker.x10 Vocabulary.x10 Documents.x10
 IOTEST: IOTester.x10 Vocabulary.x10 Documents.x10 DocumentsFrags.x10
 	$(X10C) $(FLAGS) -o $@ $^
 
-test: LDA PLDA DLDA test-ser-large test-par-large test-dist-large
-	./LDA ../datasets/sample_data 1000 20 15
+test-ser: LDA
+	./LDA ../datasets/sample_data 1000 20 20
 
 test-ser-large: LDA
 	./LDA ../datasets/ap_data 1000 100 20
@@ -25,13 +25,13 @@ test-par: PLDA
 	./PLDA ../datasets/sample_data 1000 20 15 2   
 
 test-par-large: PLDA
-	./PLDA ../datasets/ap_data 1000 100 20 4 10
+	./PLDA ../datasets/ap_data 1000 100 20 16 10
 
 test-dist: DLDA
 	./DLDA ../datasets/sample_data 1000 20 15 2 2 2 5 
 
 test-dist-large: DLDA
-	./DLDA ../datasets/ap_data 1000 100 20 4 4 5 100
+	./DLDA ../datasets/ap_data 1000 100 20 16 8 10 100
 
 test-io: IOTEST 
 	./IOTEST ../datasets/ap_data 1000 20 15 8 4  

@@ -19,24 +19,35 @@ public class DLDAWorker {
 
     val rand = new Random(Timer.milliTime());
 
+    // this threads chunck of the corpus
     public val docTopicCounts:Array_2[Long];
     
+    // thread typeTopic count matrices
     public val typeTopicCountsLocal:Array_2[Long];
+    // typeTopic counts from other threads at this place
     public val typeTopicCountsGlobal:Array_2[Long];
-
+    
+    //thread and node local totals for topic
     public val totalTypesPerTopicLocal:Rail[Long];
     public val totalTypesPerTopicGlobal:Rail[Long];
     
+    // preallocated Rail used when sampling
     var topicWeights:Rail[Double];
-
+    //workd id
     val id:Long;
+
+    // typeTopic counts from other places.
     public var typeTopicWorldCounts:Array_2[Long] = null;
     public var typeTopicWorldTotals:Rail[Long] = null;
     var useWorld:Boolean = false;
 
+    // this thread has a local vocab index (since not all of the words in this place are in this workers section of the corpus, let alone other places)
     public val localIndicesMap:HashMap[Long,Long];
+    
+    // the node's local vocab index
     public val nodeIndicesMap:HashMap[Long,Long];
     
+
     public def this(vocab:Vocabulary,
                     docs:Rail[Documents.Document],
                     ntopics:Long,
@@ -83,18 +94,19 @@ public class DLDAWorker {
     }
 
     public def toString():String {
-        val repStr:String = "LDAWorker:::thread="+id+"\n"
-            + "         :::location="+here+"\n"
-            + "         :::ntopics="+ntopics+"\n"
-            + "         :::alpha="+alpha+"\n"
-            + "         :::beta="+beta+"\n"
-            + "         :::betaSum="+betaSum+"\n"
-            + "         :::ndocs="+ndocs+"\n" 
-            + "         :::ntypes="+ntypes;
+        val repStr:String = "DLDAWorker:::thread="+id+"\n"
+            + "          :::location="+here+"\n"
+            + "          :::ntopics="+ntopics+"\n"
+            + "          :::alpha="+alpha+"\n"
+            + "          :::beta="+beta+"\n"
+            + "          :::betaSum="+betaSum+"\n"
+            + "          :::ndocs="+ndocs+"\n" 
+            + "          :::ntypes="+ntypes;
 
         return repStr;            
     }
 
+    // initialize topic assignments
     public def initLocal() {
         
         for (var d:Long = 0; d < docs.size; d++) {
@@ -162,11 +174,15 @@ public class DLDAWorker {
             val nIndex = nodeIndicesMap.get(wIndex)();
             val oldTopic = docs(d).topics(w);
             val localIndex = localIndicesMap.get(wIndex)();
+            
             // Subtract counts 
             docTopicCounts(d,oldTopic)--;
             typeTopicCountsLocal(localIndex, oldTopic)--;
             totalTypesPerTopicLocal(oldTopic)--;
             
+
+            // The actual sampling happens here 
+            // fill topicWeights rail with multinomial distribution based on current state
             var sum:Double = 0.0;
         
             for (var t:Long = 0; t < ntopics; t++) {
@@ -175,7 +191,7 @@ public class DLDAWorker {
                 sum += weight;
             }
 
-                
+            // now sample from this distribution        
             var sample:Double = rand.nextDouble() * sum;
             
             var newTopic:Long = -1;
@@ -194,17 +210,12 @@ public class DLDAWorker {
 
     }
 
+    // calculate the numerator of the conditional distribution P(z_{ij}=topic| z^{\neg ij},w)
     private def makeTopicWeight(d:Long, wIndex:Long, localIndex:Long, nodeIndex:Long, t:Long) : Double {
         
-        if (!useWorld) {
-            return (alpha + docTopicCounts(d,t)) 
-                    * ((beta + typeTopicCountsLocal(localIndex,t) + typeTopicCountsGlobal(nodeIndex,t)) 
-                        / (betaSum + totalTypesPerTopicLocal(t) + totalTypesPerTopicGlobal(t)));
-        } else {
-            return (alpha + docTopicCounts(d,t)) 
-                    * ((beta + typeTopicCountsLocal(localIndex,t) + typeTopicCountsGlobal(nodeIndex,t) + typeTopicWorldCounts(wIndex,t)) 
-                        / (betaSum + totalTypesPerTopicLocal(t) + totalTypesPerTopicGlobal(t) + typeTopicWorldTotals(t)));
-        }
+       return (alpha + docTopicCounts(d,t)) 
+                * ((beta + typeTopicCountsLocal(localIndex,t) + typeTopicCountsGlobal(nodeIndex,t) + typeTopicWorldCounts(wIndex,t)) 
+                    / (betaSum + totalTypesPerTopicLocal(t) + totalTypesPerTopicGlobal(t) + typeTopicWorldTotals(t)));
     }
 
     public def displayTopWords(topn:Long, topic:Long) {
