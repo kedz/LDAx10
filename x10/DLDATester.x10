@@ -86,6 +86,7 @@ public class DLDATester {
             }
         }
 
+        
         initTime = Timer.milliTime() - initStart;
         Console.OUT.println("INIT COMPLETE");
         //var done:GlobalRef[Cell[Boolean]] = new GlobalRef[Cell[Boolean]](new Cell[Boolean](false));
@@ -98,7 +99,8 @@ public class DLDATester {
             }
         }
 
-        
+       
+       /** SAMPLE **/ 
         initTime = Timer.milliTime() - initStart;
         for (p in places) {
             async at (p) {
@@ -221,12 +223,22 @@ public class DLDATester {
         var nonZeroTypeTopics:Long = 0;
         for (var w:Long = 0; w < ntypes; w++) {
             for (var t:Long = 0; t < ntopics; t++) {
-                if (nodes().workers(0).typeTopicCountsLocal(w,t) 
-                    + nodes().workers(0).typeTopicCountsGlobal(w,t)
+                var locCount:Long = 0;
+                if (nodes().workers(0).localIndicesMap.containsKey(w)) {
+                    val lindices = nodes().workers(0).localIndicesMap.get(w)();
+                    locCount = nodes().workers(0).typeTopicCountsLocal(lindices,t);
+                }
+                var nodeCount:Long = 0;
+                if (nodes().workers(0).nodeIndicesMap.containsKey(w)) {
+                    val nindex = nodes().workers(0).nodeIndicesMap.get(w)();
+                    nodeCount = nodes().workers(0).typeTopicCountsGlobal(nindex,t);
+                }
+                if (locCount 
+                    + nodeCount
                     + nodes().workers(0).typeTopicWorldCounts(w,t)  == 0) continue;
                 nonZeroTypeTopics++;
-                logLikelihood += MathUtils.logGamma(beta + nodes().workers(0).typeTopicCountsLocal(w,t) 
-                                                         + nodes().workers(0).typeTopicCountsGlobal(w,t)
+                logLikelihood += MathUtils.logGamma(beta + locCount 
+                                                         + nodeCount
                                                          + nodes().workers(0).typeTopicWorldCounts(w,t));
             }
         }

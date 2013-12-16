@@ -5,6 +5,8 @@ import x10.util.RailUtils;
 import x10.util.Timer;
 import x10.util.concurrent.Monitor;
 import x10.util.concurrent.AtomicBoolean;
+import x10.util.HashSet;
+import x10.util.HashMap;
 
 public class DistLDANode {
 
@@ -21,7 +23,7 @@ public class DistLDANode {
     public val betaSum:Double;
     
     val nthreads:Long;
-    public val workers:Rail[LDAWorker];
+    public val workers:Rail[DLDAWorker];
     public val typeTopicWorldCounts:Array_2[Long];
     public val typeTopicWorldTotals:Rail[Long]; 
 
@@ -46,6 +48,7 @@ public class DistLDANode {
     var talkingToWorld:Boolean = false;
     var accepting:Boolean = false;
     
+    public val nodeIndicesMap:HashMap[Long,Long];
 
     public def this(world:PlaceGroup.SimplePlaceGroup,
                     vocab:Vocabulary, 
@@ -67,19 +70,30 @@ public class DistLDANode {
         this.ntypes = vocab.size();
         this.betaSum = this.ntypes * this.beta;
         this.vocab = vocab;
+        
+        val localIndices = new HashMap[Long,Long](); 
+        var cntr:Long = 0;
+        for (docs in docsFrags)
+            for (doc in docs)
+                for (w in doc.words)
+                    if (!localIndices.containsKey(w))
+                        localIndices.put(w, cntr++);
+
+        this.nodeIndicesMap = localIndices;
+        
 
         this.nthreads = nthreads;
-        this.typeTopicLocalCountsOld = new Array_2[Long](ntypes, ntopics);
+        this.typeTopicLocalCountsOld = new Array_2[Long](localIndices.size(), ntopics);
         this.typeTopicLocalTotalsOld = new Rail[Long](ntopics);
-        this.typeTopicLocalCountsDelta = new Array_2[Long](ntypes, ntopics);
+        this.typeTopicLocalCountsDelta = new Array_2[Long](localIndices.size(), ntopics);
         this.typeTopicLocalTotalsDelta = new Rail[Long](ntopics);
 
         this.typeTopicWorldCounts = new Array_2[Long](ntypes, ntopics); 
         this.typeTopicWorldTotals = new Rail[Long](ntopics);
 
-        workers = new Rail[LDAWorker](nthreads);
+        workers = new Rail[DLDAWorker](nthreads);
         for (var t:Long = 0; t < nthreads; t++)
-            workers(t) = new LDAWorker(vocab, docsFrags.get(t), ntopics, alpha, beta, this.betaSum, t, typeTopicWorldCounts, typeTopicWorldTotals);
+            workers(t) = new DLDAWorker(vocab, docsFrags.get(t), ntopics, alpha, beta, this.betaSum, t, typeTopicWorldCounts, typeTopicWorldTotals, nodeIndicesMap);
         
         visited = new Rail[Boolean](world.numPlaces(), (i:Long) => true);
         exchanges = new Rail[Long](world.numPlaces());
@@ -136,16 +150,26 @@ public class DistLDANode {
                     for (worker in workers)
                         worker.totalTypesPerTopicGlobal(t) = totalWordsPerTopic - worker.totalTypesPerTopicLocal(t);
                     //typeTopicLocalTotalsDelta(t) = totalWordsPerTopic;// - typeTopicLocalTotalsOld(t);                                   
-
-                    for (var w:Long = 0; w < ntypes; w++) {
-                        var typeCount:Long = 0;
-                        for (worker in workers) 
-                            typeCount += worker.typeTopicCountsLocal(w,t);
-                        for (worker in workers)
-                            worker.typeTopicCountsGlobal(w,t) = typeCount - worker.typeTopicCountsLocal(w,t);
+                    val typeCounts:Rail[Long] = new Rail[Long](nodeIndicesMap.size()); 
+                    for (worker in workers) {
+                        for (w in worker.localIndicesMap.keySet()) {
+                            val lindex = worker.localIndicesMap.get(w)();    
+                            val nindex = nodeIndicesMap.get(w)();
+                            typeCounts(nindex) += worker.typeTopicCountsLocal(lindex, t);
+                        }
+                    }
+                    for (worker in workers) {
+                        for (w in nodeIndicesMap.keySet()) {
+                            val nindex = nodeIndicesMap.get(w)();
+                            worker.typeTopicCountsGlobal(nindex,t) = typeCounts(nindex); 
+                            if (worker.localIndicesMap.containsKey(w)) {
+                                val lindex = worker.localIndicesMap.get(w)();    
+                                worker.typeTopicCountsGlobal(nindex,t) -= worker.typeTopicCountsLocal(lindex, t);
+                            }
+                        }
+                    }
                         
                        //typeTopicLocalCountsDelta(w,t) = typeCount;// - typeTopicLocalCountsOld(w,t);                                   
-                    }
 
                 }
             }
@@ -241,12 +265,18 @@ public class DistLDANode {
                     typeTopicLocalTotalsOld(t) = typeTopicLocalTotalsDelta(t);
                     typeTopicLocalTotalsDelta(t) = totalWordsPerTopic;// - typeTopicLocalTotalsOld(t);                                   
 
-                    for (var w:Long = 0; w < ntypes; w++) {
+                    for (w in nodeIndicesMap.keySet()) {
+                        val nindex = nodeIndicesMap.get(w)();
                         var typeCount:Long = 0;
-                        for (worker in workers) 
-                            typeCount += worker.typeTopicCountsLocal(w,t);
-                        typeTopicLocalCountsOld(w,t) = typeTopicLocalCountsDelta(w,t);
-                        typeTopicLocalCountsDelta(w,t) = typeCount;// - typeTopicLocalCountsOld(w,t);                                   
+                        for (worker in workers) { 
+                            if (worker.localIndicesMap.containsKey(w)) {
+                                val lindex = worker.localIndicesMap.get(w)();
+                                typeCount += worker.typeTopicCountsLocal(lindex,t);
+                                
+                            }
+                        }
+                        typeTopicLocalCountsOld(nindex,t) = typeTopicLocalCountsDelta(nindex,t);
+                        typeTopicLocalCountsDelta(nindex,t) = typeCount;// - typeTopicLocalCountsOld(w,t);                                   
                     }
 
                 }
@@ -329,14 +359,16 @@ public class DistLDANode {
                     }
 
                     //Console.OUT.println(here + " transmitting topic "+t+" word updates...");
-                    for (var word:Long = 0; word < ntypes; word++) {
-                        val w = word;
-                        val newWC = typeTopicLocalCountsDelta(w,t);
-                        val oldWC = typeTopicLocalCountsOld(w,t);
+                    for (w in nodeIndicesMap.keySet()) {
+                        val nindices = nodeIndicesMap.get(w)();
+                        val word = w;
+                        val newWC = typeTopicLocalCountsDelta(nindices,t);
+                        val oldWC = typeTopicLocalCountsOld(nindices,t);
                         val wc = newWC - oldWC;
                         if (wc != 0) {                    
                             at (world(pIndex)) {
-                                nodesPlh().typeTopicWorldCounts(w,t) += wc;
+                                
+                                nodesPlh().typeTopicWorldCounts(word,t) += wc;
                             }
                         }
                     }

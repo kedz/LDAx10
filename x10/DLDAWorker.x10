@@ -4,7 +4,7 @@ import x10.util.RailUtils;
 import x10.util.Timer;
 import x10.util.HashMap;
 
-public class LDAWorker {
+public class DLDAWorker {
 
     public val docs:Rail[Documents.Document];
     val vocab:Vocabulary;
@@ -35,11 +35,8 @@ public class LDAWorker {
     var useWorld:Boolean = false;
 
     public val localIndicesMap:HashMap[Long,Long];
-
-    public def this(vocab:Vocabulary, docs:Rail[Documents.Document], ntopics:Long, alpha:Double, beta:Double, betaSum:Double, id:Long) {
-        this(vocab, docs, ntopics, alpha, beta, betaSum, id, null, null);
-    }
-
+    public val nodeIndicesMap:HashMap[Long,Long];
+    
     public def this(vocab:Vocabulary,
                     docs:Rail[Documents.Document],
                     ntopics:Long,
@@ -48,7 +45,8 @@ public class LDAWorker {
                     betaSum:Double,
                     id:Long,
                     typeTopicWorldCounts:Array_2[Long],
-                    typeTopicWorldTotals:Rail[Long]) {
+                    typeTopicWorldTotals:Rail[Long],
+                    nodeIndicesMap:HashMap[Long,Long]) {
 
         this.id = id;
         this.ndocs = docs.size;
@@ -68,11 +66,11 @@ public class LDAWorker {
                     localIndices.put(w, cntr++);
 
         this.localIndicesMap = localIndices;
-        
+        this.nodeIndicesMap = nodeIndicesMap;        
 
         this.docTopicCounts = new Array_2[Long](ndocs, ntopics);
         this.typeTopicCountsLocal = new Array_2[Long](localIndices.size(), ntopics);
-        this.typeTopicCountsGlobal = new Array_2[Long](ntypes, ntopics);
+        this.typeTopicCountsGlobal = new Array_2[Long](nodeIndicesMap.size(), ntopics);
         this.totalTypesPerTopicLocal = new Rail[Long](ntopics);
         this.totalTypesPerTopicGlobal = new Rail[Long](ntopics);
         this.topicWeights = new Rail[Double](ntopics, (t:Long) => 0.0); 
@@ -119,8 +117,9 @@ public class LDAWorker {
 
 
         for (var t:Long = 0; t < ntopics; t++) {
-            for (var i:Long = 0; i < ntypes; i++) {
-                typeTopicCountsGlobal(i,t) = 0;
+            for (w in nodeIndicesMap.keySet()) {
+                val nindex = nodeIndicesMap.get(w)();
+                typeTopicCountsGlobal(nindex,t) = 0;
 
             }
             totalTypesPerTopicGlobal(t) = 0;
@@ -160,6 +159,7 @@ public class LDAWorker {
            
              
             val wIndex = docs(d).words(w);
+            val nIndex = nodeIndicesMap.get(wIndex)();
             val oldTopic = docs(d).topics(w);
             val localIndex = localIndicesMap.get(wIndex)();
             // Subtract counts 
@@ -170,7 +170,7 @@ public class LDAWorker {
             var sum:Double = 0.0;
         
             for (var t:Long = 0; t < ntopics; t++) {
-                val weight:Double = makeTopicWeight(d, wIndex, localIndex, t);
+                val weight:Double = makeTopicWeight(d, wIndex, localIndex, nIndex, t);
                 topicWeights(t) = weight;
                 sum += weight;
             }
@@ -194,15 +194,15 @@ public class LDAWorker {
 
     }
 
-    private def makeTopicWeight(d:Long, wIndex:Long, localIndex:Long, t:Long) : Double {
+    private def makeTopicWeight(d:Long, wIndex:Long, localIndex:Long, nodeIndex:Long, t:Long) : Double {
         
         if (!useWorld) {
             return (alpha + docTopicCounts(d,t)) 
-                    * ((beta + typeTopicCountsLocal(localIndex,t) + typeTopicCountsGlobal(wIndex,t)) 
+                    * ((beta + typeTopicCountsLocal(localIndex,t) + typeTopicCountsGlobal(nodeIndex,t)) 
                         / (betaSum + totalTypesPerTopicLocal(t) + totalTypesPerTopicGlobal(t)));
         } else {
             return (alpha + docTopicCounts(d,t)) 
-                    * ((beta + typeTopicCountsLocal(localIndex,t) + typeTopicCountsGlobal(wIndex,t) + typeTopicWorldCounts(wIndex,t)) 
+                    * ((beta + typeTopicCountsLocal(localIndex,t) + typeTopicCountsGlobal(nodeIndex,t) + typeTopicWorldCounts(wIndex,t)) 
                         / (betaSum + totalTypesPerTopicLocal(t) + totalTypesPerTopicGlobal(t) + typeTopicWorldTotals(t)));
         }
     }
@@ -214,11 +214,16 @@ public class LDAWorker {
 
         
         var wordCounts:Rail[Long] = null;
-        if (useWorld) {
-            wordCounts = new Rail[Long](ntypes, (w:Long) => typeTopicCountsGlobal(w, topic) + typeTopicWorldCounts(w, topic));
-        } else {
-            wordCounts = new Rail[Long](ntypes, (w:Long) =>  typeTopicCountsGlobal(w, topic));
+        
+        wordCounts = new Rail[Long](ntypes, (w:Long) => typeTopicWorldCounts(w, topic));
+        //} else {
+        //    wordCounts = new Rail[Long](ntypes, (w:Long) =>  typeTopicCountsGlobal(w, topic));
+        //}
+        for (w in nodeIndicesMap.keySet()) {
+            val nIndex = nodeIndicesMap.get(w)();
+            wordCounts(w) += typeTopicCountsGlobal(nIndex, topic);
         }
+       
         for (doc in docs)
             for (var w:Long = 0; w < doc.size; w++) {
                 if (doc.topics(w) == topic)

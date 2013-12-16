@@ -109,13 +109,26 @@ public class ParallelLDA {
                         totalWordsPerTopic += worker.totalTypesPerTopicLocal(t);                    
                     for (worker in workers)
                         worker.totalTypesPerTopicGlobal(t) = totalWordsPerTopic - worker.totalTypesPerTopicLocal(t);
-                
-                    for (var w:Long = 0; w < ntypes; w++) {
-                        var typeCount:Long = 0;
-                        for (worker in workers) 
-                            typeCount += worker.typeTopicCountsLocal(w,t);
-                        for (worker in workers)
-                            worker.typeTopicCountsGlobal(w,t) = typeCount - worker.typeTopicCountsLocal(w,t);
+                    
+                    
+                    val typeCounts:Rail[Long] = new Rail[Long](ntypes); 
+                    for (worker in workers) {
+                        for (w in worker.localIndicesMap.keySet()) {
+                            val lindex = worker.localIndicesMap.get(w)();    
+                            typeCounts(w) += worker.typeTopicCountsLocal(lindex, t);
+                            
+                        }
+                        
+                    }
+                    for (worker in workers) {
+                        for (var w:Long = 0; w < ntypes; w++) {
+                            worker.typeTopicCountsGlobal(w,t) = typeCounts(w); 
+                            if (worker.localIndicesMap.containsKey(w)) {
+                                val lindex = worker.localIndicesMap.get(w)();    
+                                worker.typeTopicCountsGlobal(w,t) -= worker.typeTopicCountsLocal(lindex, t);
+
+                            }
+                        }
                     }
 
                 }
@@ -189,9 +202,14 @@ public class ParallelLDA {
         var nonZeroTypeTopics:Long = 0;
         for (var w:Long = 0; w < ntypes; w++) {
             for (var t:Long = 0; t < ntopics; t++) {
-                if (workers(0).typeTopicCountsLocal(w,t) + workers(0).typeTopicCountsGlobal(w,t) == 0) continue;
+                var locCount:Long = 0;
+                if (workers(0).localIndicesMap.containsKey(w)){
+                    val lindex = workers(0).localIndicesMap.get(w)();
+                    locCount = workers(0).typeTopicCountsLocal(lindex,t);
+                }
+                if (locCount + workers(0).typeTopicCountsGlobal(w,t) == 0) continue;
                 nonZeroTypeTopics++;
-                logLikelihood += MathUtils.logGamma(beta + workers(0).typeTopicCountsLocal(w,t) + workers(0).typeTopicCountsGlobal(w,t));
+                logLikelihood += MathUtils.logGamma(beta + locCount + workers(0).typeTopicCountsGlobal(w,t));
             }
         }
 
